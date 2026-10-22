@@ -19,6 +19,8 @@ class Config:
     base_url: str = "http://localhost:8000/v1"  # openai 后端
     api_key: str = "EMPTY"
     workers: int = 1                          # hf 后端请保持 1；openai 后端可调大
+    processor_kwargs: Dict[str, Any] = field(default_factory=dict)  # 传给 AutoProcessor，例如图像像素范围
+    hf_single_pass: bool = True               # hf：开思考时一次 generate 完成思考与回答（同预实验）
 
     # 聊天模板参数。思考模式用 enable_thinking 开关；预实验的“medium 思考强度”
     # 如果也是模板参数，写在 thinking_template_kwargs 里（例如 {"reasoning_effort": "medium"}，请按你的模板改）
@@ -37,7 +39,7 @@ class Config:
 
     # ---- 长度上限 ---------------------------------------------------------------------------
     think_budget: int = 4096          # 剩余思考
-    answer_budget: int = 1024         # 可见回答
+    answer_budget: int = 512          # 可见回答（同预实验，复用的 plain 也是 512）
     step2_answer_budget: int = 2048   # 第 2 步可见回答（含结构化区块）
     step3a_answer_budget: int = 512
     step3c_think_budget: int = 2048
@@ -50,7 +52,7 @@ class Config:
     crop_expand_cells: float = 0.5     # 四边各外扩半格
 
     # ---- 系统提示 ---------------------------------------------------------------------------
-    use_system_prompt: bool = True
+    use_system_prompt: bool = False    # 预实验没有 system 消息；复用 plain 时必须保持 False
 
     # ---- 杂项 -------------------------------------------------------------------------------
     order_salt: str = "symexp-v1"      # 候选顺序与 a/b 分配的随机盐

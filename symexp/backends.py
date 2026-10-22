@@ -75,7 +75,8 @@ class HFBackend(Backend):
 
         self.torch = torch
         self.transformers = transformers
-        self.processor = AutoProcessor.from_pretrained(cfg.model_path, trust_remote_code=True)
+        self.processor = AutoProcessor.from_pretrained(cfg.model_path, trust_remote_code=True,
+                                                       **(cfg.processor_kwargs or {}))
         self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
         cls = getattr(transformers, cfg.model_class)
         kw = dict(torch_dtype=getattr(torch, cfg.torch_dtype), device_map=cfg.device_map, trust_remote_code=True)
@@ -83,6 +84,9 @@ class HFBackend(Backend):
             kw["attn_implementation"] = cfg.attn_implementation
         self.model = cls.from_pretrained(cfg.model_path, **kw).eval()
         self.lock = threading.Lock()
+        ids = self.tokenizer.encode(cfg.think_close, add_special_tokens=False)
+        # 一次生成要求 </think> 是单个 token（Qwen 系列是）；否则退回两段式
+        self.close_id = ids[0] if (cfg.hf_single_pass and len(ids) == 1) else None
 
     def _template(self, req: GenRequest, thinking: bool) -> str:
         msgs = []
@@ -98,7 +102,8 @@ class HFBackend(Backend):
             return prompt.rstrip() + "\n"
         return prompt + self.cfg.think_open + "\n"
 
-    def _gen(self, text: str, images, max_new: int, greedy: bool, seed: int, stop: Optional[List[str]]):
+    def _gen(self, text: str, images, max_new: int, greedy: bool, seed: int, stop: Optional[List[str]],
+             extra: Optional[Any] = None):
         torch = self.torch
         inputs = self.processor(text=[text], images=images or None, return_tensors="pt").to(self.model.device)
         n_in = int(inputs["input_ids"].shape[1])
@@ -111,6 +116,8 @@ class HFBackend(Backend):
                       repetition_penalty=self.cfg.repetition_penalty)
         if stop:
             kw.update(stop_strings=stop, tokenizer=self.tokenizer)
+        if extra:
+            kw.update(extra(n_in) if callable(extra) else extra)
         self.transformers.set_seed(seed)
         with torch.inference_mode():
             out = self.model.generate(**inputs, **kw)
@@ -133,7 +140,10 @@ class HFBackend(Backend):
                 return GenResult(req.prefill_thinking or "", self._cut_end(txt).strip(), True, n_in, n_out,
                                  time.time() - t0, prompt)
 
-            # think：两段式生成
+            if self.close_id is not None:
+                return self._think_single_pass(req, base, t0)
+
+            # think：两段式生成（</think> 不是单个 token 时的后备）
             t1, n_in1, n_out1 = self._gen(base, req.images, req.think_budget, req.greedy, req.seed, [c.think_close])
             t1 = self._cut_end(t1)
             closed = c.think_close in t1
@@ -142,6 +152,56 @@ class HFBackend(Backend):
             t2, n_in2, n_out2 = self._gen(prompt2, req.images, req.answer_budget, req.greedy, req.seed + 7919, None)
             return GenResult(thinking, self._cut_end(t2).strip(), closed, n_in1 + n_in2, n_out1 + n_out2,
                              time.time() - t0, base)
+
+
+    def _think_single_pass(self, req: GenRequest, base: str, t0: float) -> GenResult:
+        """与预实验相同：一次 generate 完成思考和回答，思考到回答之间沿用同一份缓存。
+        思考达到 think_budget 仍未结束时强制输出 </think>；</think> 之后最多生成 answer_budget 个 token。"""
+        torch, tf, c = self.torch, self.transformers, self.cfg
+        close_id, tb, ab = self.close_id, req.think_budget, req.answer_budget
+        state = {"closed_at": None, "forced": False}
+
+        def find_close(gen):
+            if state["closed_at"] is None:
+                hit = (gen == close_id).nonzero()
+                if hit.numel():
+                    state["closed_at"] = int(hit[0, 0])
+            return state["closed_at"]
+
+        class ThinkBudget(tf.LogitsProcessor):
+            def __init__(self, n_in):
+                self.n_in = n_in
+
+            def __call__(self, input_ids, scores):
+                gen = input_ids[0, self.n_in:]
+                if find_close(gen) is None and gen.shape[0] >= tb:
+                    scores = torch.full_like(scores, float("-inf"))
+                    scores[:, close_id] = 0.0
+                    state["forced"] = True
+                return scores
+
+        class AnswerBudget(tf.StoppingCriteria):
+            def __init__(self, n_in):
+                self.n_in = n_in
+
+            def __call__(self, input_ids, scores, **kw):
+                gen = input_ids[0, self.n_in:]
+                at = find_close(gen)
+                done = at is not None and gen.shape[0] - at - 1 >= ab
+                return torch.full((input_ids.shape[0],), done, dtype=torch.bool, device=input_ids.device)
+
+        def extra(n_in):
+            return {"logits_processor": tf.LogitsProcessorList([ThinkBudget(n_in)]),
+                    "stopping_criteria": tf.StoppingCriteriaList([AnswerBudget(n_in)])}
+
+        txt, n_in, n_out = self._gen(base, req.images, tb + 1 + ab, req.greedy, req.seed, None, extra)
+        txt = self._cut_end(txt)
+        if c.think_close in txt:
+            thinking, answer = txt.split(c.think_close, 1)
+        else:
+            thinking, answer = txt, ""
+        closed = state["closed_at"] is not None and not state["forced"]
+        return GenResult(thinking.strip(), answer.strip(), closed, n_in, n_out, time.time() - t0, base)
 
 
 # =============================================================================================

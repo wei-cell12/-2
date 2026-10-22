@@ -40,7 +40,7 @@ def main():
     r.add_argument("--config", default=None)
     r.add_argument("--data", required=True, help="conditions.jsonl")
     r.add_argument("--out", required=True, help="这一次运行的输出目录")
-    r.add_argument("--seeds", type=int, nargs="+", default=[0])
+    r.add_argument("--seeds", type=int, nargs="+", default=[42], help="默认 42，与复用的 plain 相同")
     r.add_argument("--conditions", nargs="*", default=None, help="只跑某些条件，例如 neutral")
     r.add_argument("--ptypes", nargs="*", default=None)
     r.add_argument("--ids", nargs="*", default=None)

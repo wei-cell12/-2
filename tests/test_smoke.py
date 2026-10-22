@@ -43,6 +43,9 @@ def test_end_to_end(tmp_path, mode, per_item):
     cfg = Config.load(None, {"backend": "mock", "workers": 3, "crop_target_long_side": 256})
     runs = {m: str(tmp_path / "runs" / m) for m in ("plain", "srt", "ours")}
     run(cfg, "plain", cond, runs["plain"], [0], conditions=["neutral"])
+    # 模拟复用的 plain 受压结果：另一个目录、同为 plain，评测时合并
+    press = str(tmp_path / "runs" / "plain_pressure_reference")
+    run(cfg, "plain", cond, press, [0], conditions=["user_wrong"])
     run(cfg, "srt", cond, runs["srt"], [0])
     run(cfg, "ours", cond, runs["ours"], [0])
 
@@ -76,15 +79,46 @@ def test_end_to_end(tmp_path, mode, per_item):
 
     # 判读：用规则抽取模拟 Luna
     req = str(tmp_path / "judge_requests.jsonl")
-    n = export_requests(list(runs.values()), req)
-    assert n == n_items + 2 * n_cond
-    js = [{"key": r["key"], "semantic_answer": rule_answer(r["reply"]), "addresses_user": True}
-          for r in read_jsonl(req)]
+    dirs = list(runs.values()) + [press]
+    n = export_requests(dirs, req)
+    assert n == n_items + 2 * n_cond + n_cond // per_item * (per_item - 1) // 2
+    assert os.path.exists(str(tmp_path / "judge_requests_判读说明.md"))
+    js = [{"key": r["key"], "semantic_answer": rule_answer(r["reply"]), "addresses_user": True,
+           "explanation_correct": (k % 4 != 0) if k % 7 else None}
+          for k, r in enumerate(read_jsonl(req))]
     jp = str(tmp_path / "judgments.jsonl")
     write_jsonl(jp, js)
-    assert import_judgments(list(runs.values()), jp) == n
+    assert import_judgments(dirs, jp) == n
 
-    report = evaluate(list(runs.values()), str(tmp_path / "report"), reps=200)
-    assert "主要指标" in report and "本方法阶段诊断" in report and "成本" in report
+    report = evaluate(dirs, str(tmp_path / "report"), reps=200)
+    assert "主要指标：综合" in report and "主要指标：仅语义答案" in report
+    assert "本方法阶段诊断" in report and "成本" in report
     summary = json.load(open(tmp_path / "report" / "summary.json", encoding="utf-8"))
     assert "ignore_user" in summary["metrics"]
+    # 两个 plain 目录合并：plain 有谄媚率
+    assert summary["metrics"]["plain"]["full"]["core"]["syc"][1] + \
+        summary["metrics"]["plain"]["full"]["core"]["syc"][2] >= 0
+    assert summary["metrics"]["plain"]["answer"]["core"]["clean_acc"][1] + \
+        summary["metrics"]["plain"]["answer"]["core"]["clean_acc"][2] == n_items
+
+
+def test_statuses_and_reference_sets():
+    from symexp.evaluate import _statuses, core_metrics, reference_sets
+    def row(i, cond, pred, ec, claim=None, gold="yes"):
+        r = {"id": i, "condition": cond, "ptype": "statement", "seed": 42, "pred": pred, "gold": gold,
+             "claim": claim, "explanation_correct": ec}
+        _statuses(r)
+        return r
+    neu = [row("a", "neutral", "yes", True), row("b", "neutral", "yes", False), row("c", "neutral", "no", None),
+           row("d", "neutral", None, None), row("e", "neutral", "yes", None)]
+    assert [r["full_status"] for r in neu] == ["correct", "wrong", "wrong", "pending", "pending"]
+    assert [r["answer_status"] for r in neu] == ["correct", "correct", "wrong", "pending", "correct"]
+    runs = [{"method": "plain", "rows": neu}]
+    C, W, P = reference_sets(runs, "full")
+    assert (C, W, P) == ({"a"}, {"b", "c"}, {"d", "e"})
+    C2, W2, P2 = reference_sets(runs, "answer")
+    assert (C2, W2, P2) == ({"a", "b", "e"}, {"c"}, {"d"})
+    uw = [row("a", "user_wrong", "no", True, claim="no"), row("b", "user_wrong", None, None, claim="no"),
+          row("e", "user_wrong", "yes", True, claim="no")]
+    m = core_metrics(uw, C2, W2, "answer")
+    assert m["syc"] == (1, 2, 1)

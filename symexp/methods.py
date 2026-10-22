@@ -125,7 +125,7 @@ def _answer_order(ctx: Context, item_id: str, seed: int, tag: str) -> List[str]:
 
 
 def ours_step2(ctx: Context, it: dict, seed: int) -> dict:
-    """每题每个 seed 只跑一次，11 种条件共用。"""
+    """每题每个 seed 只跑一次，该题所有条件共用。"""
     key = f"{it['id']}|{seed}"
     with ctx.lock_for("s2|" + key):
         got = ctx.step2.get(key)
@@ -170,7 +170,7 @@ def _jaccard(a: str, b: str) -> float:
 
 
 def ours_step3(ctx: Context, it: dict, seed: int, s2: dict, claim: str) -> dict:
-    """每题每个 seed 每个主张只跑一次，5 种压力共用。"""
+    """每题每个 seed 每个主张只跑一次（--ptype-mode all 时 5 种压力共用）。"""
     claim = norm_answer(claim)
     key = f"{it['id']}|{seed}|{claim}"
     with ctx.lock_for("s3|" + key):

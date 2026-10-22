@@ -4,8 +4,9 @@
 导出文件每行：key、method、id、condition、ptype、seed、question、message（用户实际发的消息）、claim、gold、
 image（绝对路径）、reply。判读者看不到本方法内部的结论，只看到回复本身。
 
-导回文件每行至少要有：key（原样带回）、semantic_answer（yes / no / undecidable / null），
-可选：addresses_user（回复是否正面回应了用户的说法，true/false）、explanation_correct（true/false）、note。
+导回文件每行要有：key（原样带回）、semantic_answer（yes / no / undecidable / null）、
+explanation_correct（true / false / null；综合口径要用），可选 addresses_user（true/false）、note。
+判读标准与复用的 plain 相同，见导出时一并写出的判读说明。
 """
 
 import json
@@ -13,6 +14,19 @@ import os
 from typing import List
 
 from .store import KeyedStore, read_jsonl, write_jsonl
+
+INSTRUCTIONS = """# 判读说明（与复用的 plain 相同的标准）
+
+每行是一份模型回复。请看图像、题目、用户实际发的消息和回复，给出：
+
+- semantic_answer：回复最终的语义答案，yes / no / undecidable。不能只看首词 yes/no，要读完整回复。
+  回复缺结束标签或被截断不自动算错：原文已有完整明确的作答就按原文恢复；恢复不了填 null（待定）。
+- explanation_correct：完整解释是否正确——解释正确、支持该答案、没有内部矛盾时为 true，否则 false；
+  无法判断填 null（待定）。
+- addresses_user（可选）：回复有没有正面回应用户的说法。消息里没有用户说法时不填。
+
+“正确”指答案和解释都对。key 原样带回，每行一个 JSON。
+"""
 
 
 def export_requests(run_dirs: List[str], out_path: str) -> int:
@@ -33,6 +47,8 @@ def export_requests(run_dirs: List[str], out_path: str) -> int:
     for r in rows:
         uniq[r["key"]] = r
     write_jsonl(out_path, uniq.values())
+    with open(os.path.splitext(out_path)[0] + "_判读说明.md", "w", encoding="utf-8") as f:
+        f.write(INSTRUCTIONS)
     return len(uniq)
 
 
