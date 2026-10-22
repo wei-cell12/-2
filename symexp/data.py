@@ -2,7 +2,8 @@
 """数据准备与条件构造。
 
 base.jsonl：每题一行 {"id", "image"（相对 base.jsonl 的路径）, "question", "answer"（yes/no）, "source"}
-conditions.jsonl：每题 11 行（neutral；user_wrong × 5；user_right × 5）
+conditions.jsonl：默认每题分配一种压力方式，3 行（neutral、user_wrong、user_right）；
+                  --ptype-mode all 时每题 11 行（neutral；user_wrong × 5；user_right × 5）
 """
 
 import os
@@ -105,10 +106,31 @@ def prepare_synthetic(out_dir: str, n: int = 8, seed: int = 0) -> List[dict]:
     return rows
 
 
-def build_conditions(base_path: str, out_path: str, sep: str = "\n") -> List[dict]:
+def assign_ptypes(base: List[dict], seed: int = 0) -> dict:
+    """每题分配一种压力方式：按标准答案分层后轮流分配，使 5 种方式的题数、yes/no 比例都尽量均衡。"""
+    types = list(PRESSURE_TEMPLATES)
+    rng = random.Random(seed)
+    out, k = {}, 0
+    by = defaultdict(list)
+    for it in base:
+        by[it["answer"]].append(it["id"])
+    for ans in sorted(by):
+        ids = sorted(by[ans])
+        rng.shuffle(ids)
+        for i in ids:
+            out[i] = types[k % len(types)]
+            k += 1
+    return out
+
+
+def build_conditions(base_path: str, out_path: str, sep: str = "\n", ptype_mode: str = "assign",
+                     ptype_seed: int = 0) -> List[dict]:
+    """ptype_mode="assign"：每题一种压力方式，3 个条件（neutral、user_wrong、user_right）。
+    ptype_mode="all"：每题 5 种压力方式全跑，11 个条件。"""
     base = read_jsonl(base_path)
     base_dir = os.path.dirname(os.path.abspath(base_path))
     out_dir = os.path.dirname(os.path.abspath(out_path))
+    assigned = assign_ptypes(base, ptype_seed) if ptype_mode == "assign" else None
     rows = []
     for it in base:
         img = os.path.relpath(os.path.join(base_dir, it["image"]), out_dir)
@@ -116,10 +138,19 @@ def build_conditions(base_path: str, out_path: str, sep: str = "\n") -> List[dic
         wrong = "no" if gold == "yes" else "yes"
         common = {"id": it["id"], "image": img, "question": it["question"], "answer": gold}
         rows.append({**common, "condition": "neutral", "ptype": "none", "claim": None, "message": it["question"]})
+        ptypes = [assigned[it["id"]]] if assigned else list(PRESSURE_TEMPLATES)
         for cond, a in (("user_wrong", wrong), ("user_right", gold)):
-            for ptype, tpl in PRESSURE_TEMPLATES.items():
+            for ptype in ptypes:
                 rows.append({**common, "condition": cond, "ptype": ptype, "claim": a,
-                             "message": it["question"] + sep + tpl.format(a=a)})
+                             "message": it["question"] + sep + PRESSURE_TEMPLATES[ptype].format(a=a)})
     write_jsonl(out_path, rows)
-    print(f"[conditions] {len(base)} items x 11 = {len(rows)} rows -> {out_path}")
+    per = len(rows) // max(1, len(base))
+    print(f"[conditions] mode={ptype_mode}: {len(base)} items x {per} = {len(rows)} rows -> {out_path}")
+    if assigned:
+        cnt = defaultdict(lambda: [0, 0])
+        gold_of = {it["id"]: it["answer"] for it in base}
+        for i, p in assigned.items():
+            cnt[p][0 if gold_of[i] == "yes" else 1] += 1
+        print("[conditions] items per pressure type (yes/no): " +
+              ", ".join(f"{p} {v[0] + v[1]} ({v[0]}/{v[1]})" for p, v in cnt.items()))
     return rows

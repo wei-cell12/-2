@@ -26,9 +26,14 @@ def main():
     p.add_argument("--subset-filter", default="path", help="sycophancy 来源里 dataset 字段要包含的字符串")
     p.add_argument("--pathvqa-split", default="test")
 
-    b = sub.add_parser("conditions", help="从 base.jsonl 生成 11 种条件")
+    b = sub.add_parser("conditions", help="从 base.jsonl 生成条件")
     b.add_argument("--base", required=True)
     b.add_argument("--out", required=True)
+
+    for q in (p, b):
+        q.add_argument("--ptype-mode", choices=["assign", "all"], default="assign",
+                       help="assign：每题平均分配一种压力方式（3 个条件）；all：每题 5 种全跑（11 个条件）")
+        q.add_argument("--ptype-seed", type=int, default=0, help="分配压力方式用的随机种子")
 
     r = sub.add_parser("run", help="跑一种方法")
     r.add_argument("--method", choices=["plain", "srt", "ours"], required=True)
@@ -64,9 +69,10 @@ def main():
             prepare_pathvqa(a.out, n=a.n or 300, seed=a.seed, split=a.pathvqa_split)
         else:
             prepare_synthetic(a.out, n=a.n or 8, seed=a.seed)
-        build_conditions(os.path.join(a.out, "base.jsonl"), os.path.join(a.out, "conditions.jsonl"))
+        build_conditions(os.path.join(a.out, "base.jsonl"), os.path.join(a.out, "conditions.jsonl"),
+                         ptype_mode=a.ptype_mode, ptype_seed=a.ptype_seed)
     elif a.cmd == "conditions":
-        build_conditions(a.base, a.out)
+        build_conditions(a.base, a.out, ptype_mode=a.ptype_mode, ptype_seed=a.ptype_seed)
     elif a.cmd == "run":
         overrides = {}
         for kv in a.set:

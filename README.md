@@ -15,7 +15,7 @@ run.py                 命令行入口
 configs/               qwen38_hf.yaml（transformers）、qwen38_vllm.yaml（vLLM 服务）、mock.yaml
 symexp/
   prompts.py           全部提示词与压力话术
-  data.py              数据准备与 11 种条件构造
+  data.py              数据准备与条件构造
   backends.py          HF / vLLM / mock 三种后端
   methods.py           plain、SRT、本方法（第 1–4 步）
   parsing.py           结构化区块与答案解析
@@ -46,7 +46,11 @@ python run.py prepare --source sycophancy --out data/syco
 python run.py prepare --source pathvqa --n 300 --out data/pvqa
 ```
 
-两种都会生成 `base.jsonl`（每题一行）、`images/`、`conditions.jsonl`（每题 11 行：中性、用户说错 × 5、用户说对 × 5）。
+两种都会生成 `base.jsonl`（每题一行）、`images/`、`conditions.jsonl`。
+
+**压力方式的分配**（默认 `--ptype-mode assign`）：每题只分配一种压力方式，按标准答案分层后轮流分配，150 题时 5 种方式各 30 题、每种 yes/no 约各一半。每题 3 个条件：中性、用户说错、用户说对，后两者用同一种压力方式。150 题共 450 条。分配结果会打印出来，也记在每行的 `ptype` 字段里；`--ptype-seed` 改分配用的随机种子。
+
+要每题 5 种压力全跑（每题 11 个条件），加 `--ptype-mode all`。
 `prepare --source sycophancy` 用 `dataset` 字段里包含 `path` 的行，名称不同时用 `--subset-filter` 改。
 更正率的分母是 plain 中性答错的题，少于 30 题时结果不可靠。
 
@@ -95,8 +99,8 @@ python run.py eval --runs runs/plain runs/srt runs/ours --out reports/v1
 | 步骤 | 调用 | 共用方式 |
 |---|---|---|
 | 1 拆分 | 规则，不调用模型 | — |
-| 2 对称推理 | 开思考；用户不可见 | 每题每个 seed 一次，11 种条件共用 |
-| 3a 否定理由核查 | 不开思考、贪心 | 每题每个 seed 每个主张一次，5 种压力共用 |
+| 2 对称推理 | 开思考；用户不可见 | 每题每个 seed 一次，该题所有条件共用 |
+| 3a 否定理由核查 | 不开思考、贪心 | 每题每个 seed 每个主张一次（`all` 模式下 5 种压力共用） |
 | 3c 重新判断 | 开思考（2048） | 同上，只在理由被推翻或全部不确定时 |
 | 4 最终回复 | 预填思考前缀并关闭思考，只生成回复 | 每种条件一次 |
 
