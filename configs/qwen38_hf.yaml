@@ -1,0 +1,32 @@
+# Qwen3.8-27B，Hugging Face transformers 后端（沿用预实验的加载方式）
+backend: hf
+model_path: /path/to/Qwen3.8-27B          # ← 改成服务器上的权重目录
+model_class: Qwen3_5ForConditionalGeneration   # 预实验实际加载的类
+torch_dtype: bfloat16
+device_map: auto
+workers: 1
+
+# 思考模式开关。预实验用的是 medium 思考强度：
+# 如果你的聊天模板是用参数控制强度，把那个参数加进 thinking_template_kwargs（名字按你的模板填）
+thinking_template_kwargs: {enable_thinking: true}
+nothinking_template_kwargs: {enable_thinking: false}
+think_open: "<think>"
+think_close: "</think>"
+
+# 解码（同预实验）
+temperature: 1.0
+top_p: 0.95
+top_k: 20
+min_p: 0.0
+repetition_penalty: 1.0
+
+# 长度上限（方案 v1）
+think_budget: 4096
+answer_budget: 1024
+step2_answer_budget: 2048
+step3a_answer_budget: 512
+step3c_think_budget: 2048
+step3c_answer_budget: 1024
+
+# 裁切图放大到的长边：请设成模型实际输入的最大边长（与预实验的图像输入设定一致）
+crop_target_long_side: 1024
