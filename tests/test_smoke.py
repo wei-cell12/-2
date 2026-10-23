@@ -89,6 +89,19 @@ def test_end_to_end(tmp_path, mode, per_item):
     assert {c["step"] for c in cd} == {"step4"} and len(cd) == n_cond  # 第 2 步全部复用
     assert not read_jsonl(os.path.join(direct, "step3.jsonl"))
 
+    # LQCD：mock 后端，记录注意力，并用注意力分析比较两条分支
+    lq = str(tmp_path / "runs" / "lqcd")
+    cfg_l = Config.load(None, {"backend": "mock", "workers": 2, "lqcd_record_attention": True})
+    run(cfg_l, "lqcd", cond, lq, [0], conditions=["user_wrong"])
+    fl = read_jsonl(os.path.join(lq, "final.jsonl"))
+    assert len(fl) == n_cond // per_item * (per_item - 1) // 2 and not any(r.get("error") for r in fl)
+    assert all(set(r["attn_files"]) == {"lead", "neutral"} for r in fl)
+    from symexp.attn_analysis import analyze
+    tag = "user_wrong__*__{}" if mode == "assign" else "user_wrong__statement__{}"
+    rep = analyze(f"lqcd_neutral={lq}/attn@" + tag.format("neutral"), [f"lqcd_lead={lq}/attn@" + tag.format("lead")],
+                  str(tmp_path / "attn_report"), reps=50)
+    assert "lqcd_lead vs lqcd_neutral（10 题配对）" in rep
+
     # 判读：用规则抽取模拟 Luna
     req = str(tmp_path / "judge_requests.jsonl")
     dirs = list(runs.values()) + [press, direct]

@@ -154,6 +154,11 @@ class HFBackend(Backend):
                              time.time() - t0, base)
 
 
+    def generate_lqcd(self, req_lead: GenRequest, req_neu: GenRequest, **kw):
+        from .lqcd import generate_lqcd
+        with self.lock:
+            return generate_lqcd(self, req_lead, req_neu, **kw)
+
     def _think_single_pass(self, req: GenRequest, base: str, t0: float) -> GenResult:
         """与预实验相同：一次 generate 完成思考和回答，思考到回答之间沿用同一份缓存。
         思考达到 think_budget 仍未结束时强制输出 </think>；</think> 之后最多生成 answer_budget 个 token。"""
@@ -277,6 +282,26 @@ class MockBackend(Backend):
     def _rng(req: GenRequest) -> random.Random:
         key = "|".join([req.user_text, str(req.seed), req.mode, req.prefill_thinking or ""])
         return random.Random(zlib.crc32(key.encode("utf-8")))
+
+    def generate_lqcd(self, req_lead: GenRequest, req_neu: GenRequest, record: bool = False, **kw):
+        """mock：用中性分支的输出代替；记录注意力时给出形状正确的随机数组。"""
+        import numpy as np
+        r = self.generate(GenRequest(user_text=req_neu.user_text, images=req_neu.images, mode="think",
+                                     think_budget=req_neu.think_budget, answer_budget=req_neu.answer_budget,
+                                     seed=req_lead.seed))
+        info = {"alpha_mean": kw.get("alpha0", 1.0), "jsd_mean": 0.1, "n_tokens": r.gen_tokens,
+                "forced_close": False, "neutral_prompt": req_neu.user_text}
+        if record:
+            rng = np.random.default_rng(zlib.crc32(req_lead.user_text.encode()))
+            info["attn"] = {}
+            for b in ("lead", "neutral"):
+                d = {"layer_ids": np.arange(3, 64, 4), "n_img": 16, "grid_hw": np.array([4, 4]),
+                     "prompt_len": 100, "close_pos": 150, "total_len": 200}
+                for st in ("prefill_end", "think", "answer"):
+                    d[st] = rng.random((16, 4, 16)).astype(np.float32) * 0.01
+                    d["count_" + st] = 1.0
+                info["attn"][b] = d
+        return r, info
 
     def generate(self, req: GenRequest) -> GenResult:
         r = self._rng(req)

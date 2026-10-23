@@ -375,4 +375,59 @@ def run_ours_direct(ctx: Context, it: dict, seed: int) -> dict:
     return run_ours(ctx, it, seed, use_step3=False)
 
 
-METHODS = {"plain": run_plain, "srt": run_srt, "ours": run_ours, "ours_direct": run_ours_direct}
+# =============================================================================================
+# LQCD（对比解码 baseline）
+# =============================================================================================
+def run_lqcd(ctx: Context, it: dict, seed: int) -> dict:
+    c = ctx.cfg
+    row = _base_row(ctx, it, seed)
+    img = ctx.image(it["image"])
+    if it["condition"] == "neutral":
+        # 两条分支输入相同，组合后就是普通解码，等同 plain 中性
+        req = GenRequest(user_text=it["message"], images=[img], system=ctx.system(), mode="think",
+                         think_budget=c.think_budget, answer_budget=c.answer_budget, seed=seed)
+        r = ctx.call("lqcd_neutral_shortcut", final_key(it, seed), req)
+        row.update(reply=r.answer, reply_thinking=r.thinking, thinking_closed=r.thinking_closed,
+                   rule_pred=rule_answer(r.answer, "lqcd"), lqcd_shortcut=True,
+                   query_prompt_tokens=r.prompt_tokens, query_gen_tokens=r.gen_tokens, query_seconds=r.seconds,
+                   n_calls=1)
+        return row
+    if c.lqcd_neutral == "llm":
+        nreq = GenRequest(user_text=P.NEUTRALIZE_TEMPLATE.format(message=it["message"]), images=[],
+                          mode="nothink", answer_budget=256, greedy=True, seed=seed)
+        neutral_q = ctx.call("lqcd_neutralize", final_key(it, seed), nreq).answer.strip() or it["question"]
+    else:
+        neutral_q = it["question"]
+    req_lead = GenRequest(user_text=it["message"], images=[img], system=ctx.system(), mode="think",
+                          think_budget=c.think_budget, answer_budget=c.answer_budget, seed=seed)
+    req_neu = GenRequest(user_text=neutral_q, images=[img], system=ctx.system(), mode="think",
+                         think_budget=c.think_budget, answer_budget=c.answer_budget, seed=seed)
+    if not hasattr(ctx.backend, "generate_lqcd"):
+        raise RuntimeError("LQCD 只支持 hf 和 mock 后端（需要逐步读取两条分支的 logits）")
+    r, info = ctx.backend.generate_lqcd(req_lead, req_neu, alpha0=c.lqcd_alpha0, lam=c.lqcd_lambda,
+                                        beta0=c.lqcd_beta0, mu=c.lqcd_mu, record=c.lqcd_record_attention)
+    with ctx.calls_lock:
+        with open(ctx.calls_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"method": "lqcd", "step": "lqcd", "unit": final_key(it, seed), "seed": seed,
+                                "user_text": it["message"], "neutral_text": neutral_q, "prompt_text": r.prompt_text,
+                                "thinking": r.thinking, "answer": r.answer, "thinking_closed": r.thinking_closed,
+                                "prompt_tokens": r.prompt_tokens, "gen_tokens": r.gen_tokens,
+                                "seconds": round(r.seconds, 3), "alpha_mean": info.get("alpha_mean"),
+                                "jsd_mean": info.get("jsd_mean"), "time": time.time()}, ensure_ascii=False) + "\n")
+    attn_files = {}
+    if info.get("attn"):
+        from .attn import save_npz
+        for b, d in info["attn"].items():
+            path = os.path.join(ctx.run_dir, "attn", f"{it['id']}__{it['condition']}__{it['ptype']}__{b}.npz")
+            save_npz(path, d, image=it["image"])
+            attn_files[b] = path
+    row.update(reply=r.answer, reply_thinking=r.thinking, thinking_closed=r.thinking_closed,
+               rule_pred=rule_answer(r.answer, "lqcd"), neutral_query=neutral_q,
+               lqcd_alpha_mean=info.get("alpha_mean"), lqcd_jsd_mean=info.get("jsd_mean"),
+               lqcd_forced_close=info.get("forced_close"), attn_files=attn_files,
+               query_prompt_tokens=r.prompt_tokens, query_gen_tokens=r.gen_tokens, query_seconds=r.seconds,
+               n_calls=1, forward_passes_per_token=2)
+    return row
+
+
+METHODS = {"plain": run_plain, "srt": run_srt, "ours": run_ours, "ours_direct": run_ours_direct, "lqcd": run_lqcd}

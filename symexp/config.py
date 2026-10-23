@@ -49,7 +49,17 @@ class Config:
     # ---- 第 3 步 ----------------------------------------------------------------------------
     max_reasons: int = 3
     step4_reminder: bool = True        # 第 4 步前缀末尾加收尾提醒（v1.1）
-    step2_source: str = ""             # 另一个本方法输出目录；有同版本的第 2 步就直接复用，不再生成
+    step2_source: str = ""
+    # ---- LQCD（对比解码 baseline）--------------------------------------------------------------
+    lqcd_alpha0: float = 1.0           # 对比强度；论文未给值，沿用对比解码常用设置
+    lqcd_lambda: float = 0.0           # α 随 JSD 自适应的系数；0 = 固定 α
+    lqcd_beta0: float = 0.1            # 可信度过滤：保留 p_中性 ≥ β·max 的候选
+    lqcd_mu: float = 0.0               # β 随熵自适应的系数；0 = 固定 β
+    lqcd_neutral: str = "rule"         # rule：规则拆分出的原问题；llm：用 NEUTRALIZE_TEMPLATE 让模型改写
+    lqcd_record_attention: bool = False  # 生成时记录两条分支的图像注意力（存到 <run>/attn/）
+    # ---- 注意力记录 ----------------------------------------------------------------------------
+    attn_chunk: int = 256              # 重算注意力时每块的查询数（显存不够就调小）
+    attn_selfcheck: int = 2            # 每条序列前几次调用与原注意力函数比对输出             # 另一个本方法输出目录；有同版本的第 2 步就直接复用，不再生成
     crop_target_long_side: int = 1024  # 裁切图放大到的长边（请设成模型实际输入的最大边长）
     crop_expand_cells: float = 0.5     # 四边各外扩半格
 

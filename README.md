@@ -167,6 +167,15 @@ python run.py run --method ours_direct --config $C --data $D --out $R/runs/ours_
 
 输出文件（`runs/ours/`）：`step2.jsonl`、`step3.jsonl`、`final.jsonl`，以及记录每一次调用完整输入输出、token 数、耗时的 `calls.jsonl`。
 
+## 图像注意力区域分析与 LQCD
+
+服务器上的执行步骤见 [`docs/服务器任务_注意力区域与LQCD.md`](docs/服务器任务_注意力区域与LQCD.md)。
+
+- **只读前向回放**（`attn-replay`）：把已保存的完整 token 序列原样喂回模型，不生成。只在 16 个标准注意力层上记录对每个图像 token 的注意力（先对全部 key 做 softmax 再截取图像列），按三个阶段平均：prefill 末尾、思考、回答。每条序列前两次调用会和原 sdpa 输出比对（`selfcheck_max_abs_diff`）。需要 `attn_implementation: sdpa`。
+- **校验**（`attn-validate`）：把回放得到的“每个生成位置对整个图像的注意力”和预实验保存的 `generation_masses` 对比，确认回放和原始生成一致。
+- **区域比较**（`attn-analyze`）：每个 (层, 头) 先在图像内部归一化；E 区 = 中性时注意力最高的 20% 图像块，U 区 = 比较组增加最多的 20%；区域用一半标准层挑选、在另一半上测量，避免回归均值造成的假下降。报告 E 区份额变化、U 区相对变化、留存率、JS 散度、图像总量变化，以及这些量能否预测改口（AUC）。
+- **LQCD**（`--method lqcd`）：中性问题与诱导问题两条分支的对比解码，`(1+α)·中性 logits − α·诱导 logits`，加可信度过滤；可选按 JSD 自适应 α、按熵自适应 β。论文没给超参数，默认 α0 = 1、β0 = 0.1。`lqcd_record_attention=true` 时同时记录两条分支的图像注意力，存到 `<run>/attn/{id}__{condition}__{ptype}__{lead|neutral}.npz`。只支持 hf（和 mock）后端。
+
 ## 不复用时
 
 从头准备数据（会重新下载、另存 PNG、重新分配压力类型，和复用的 plain 不再对得上）：
