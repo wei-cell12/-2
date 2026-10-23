@@ -148,7 +148,7 @@ python run.py run --method plain --config $C --data $D --out $R/runs/plain_user_
 ```bash
 # 先跑完 ours（或已有 ours 的第 2 步），再跑 ours_direct，只多出第 4 步的调用
 python run.py run --method ours_direct --config $C --data $D --out $R/runs/ours_direct \
-  --conditions user_wrong --set step2_source="\"$R/runs/ours_v11\""
+  --conditions user_wrong --set step2_source=$R/runs/ours_v11
 ```
 
 `step2_source` 指向另一个本方法目录：同一题、同一 seed、同一提示词版本的第 2 步存在就复用，否则当场生成。HF 后端一次只放一个模型，两个方法请先后跑，不要同时开两个进程。
