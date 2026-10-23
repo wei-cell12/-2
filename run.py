@@ -36,7 +36,7 @@ def main():
         q.add_argument("--ptype-seed", type=int, default=0, help="分配压力方式用的随机种子")
 
     r = sub.add_parser("run", help="跑一种方法")
-    r.add_argument("--method", choices=["plain", "srt", "ours"], required=True)
+    r.add_argument("--method", choices=["plain", "srt", "ours", "ours_direct"], required=True)
     r.add_argument("--config", default=None)
     r.add_argument("--data", required=True, help="conditions.jsonl")
     r.add_argument("--out", required=True, help="这一次运行的输出目录")

@@ -39,7 +39,7 @@ def run(cfg: Config, method: str, data_path: str, run_dir: str, seeds: List[int]
     from .prompts import PROMPT_VERSION
     old_cfg = os.path.join(run_dir, "config.json")
     # 只有本方法用到 v1.1 改动的提示词；plain、SRT 的旧结果可以照常续跑
-    if method == "ours" and os.path.exists(old_cfg) and read_jsonl(os.path.join(run_dir, "final.jsonl")):
+    if method.startswith("ours") and os.path.exists(old_cfg) and read_jsonl(os.path.join(run_dir, "final.jsonl")):
         prev = json.load(open(old_cfg, encoding="utf-8")).get("prompt_version")
         if prev != PROMPT_VERSION:
             raise SystemExit(f"{run_dir} 里已有提示词版本 {prev} 的结果，当前是 {PROMPT_VERSION}。"
@@ -60,7 +60,7 @@ def run(cfg: Config, method: str, data_path: str, run_dir: str, seeds: List[int]
     # 本方法按 (题, seed) 分组，组内依次跑，保证第 2、3 步只跑一次
     groups = defaultdict(list)
     for it, s in todo:
-        groups[(it["id"], s) if method == "ours" else (final_key(it, s),)].append((it, s))
+        groups[(it["id"], s) if method.startswith("ours") else (final_key(it, s),)].append((it, s))
 
     def work(units):
         out = []

@@ -65,7 +65,7 @@ def load_run(d: str) -> Dict:
             src["rule"] += 1
         _statuses(r)
     out = {"dir": d, "method": cfg["method"], "rows": rows, "errors": errors, "pred_source": dict(src)}
-    if cfg["method"] == "ours":
+    if cfg["method"].startswith("ours"):
         out["step2"] = {r["key"]: r for r in read_jsonl(os.path.join(d, "step2.jsonl")) if not r.get("error")}
         out["step3"] = {r["key"]: r for r in read_jsonl(os.path.join(d, "step3.jsonl")) if not r.get("error")}
     return out
@@ -415,11 +415,13 @@ def evaluate(run_dirs: List[str], out_dir: str, reps: int = 2000) -> str:
 
     # ---- 本方法阶段诊断 ------------------------------------------------------------------------
     for run in runs:
-        if run["method"] != "ours":
+        if not run["method"].startswith("ours"):
             continue
         d = stage_diagnostics(run, neutral)
-        summary["ours_stages"] = d
-        lines += ["## 本方法阶段诊断（语义答案）", "",
+        summary.setdefault("stages", {})[run["method"]] = d
+        if run["method"] == "ours":
+            summary["ours_stages"] = d
+        lines += [f"## 阶段诊断：{run['method']}（语义答案）", "",
                   f"- 第 2 步区块解析成功：{pct(*d['step2_parse_ok'])}",
                   f"- 第 2 步结论准确率：{pct(*d['step2_acc'])}；其中 undecidable {pct(*d['step2_undecidable'])}",
                   f"- 第 2 步 vs plain 中性：配对 {d['step2_vs_plain_neutral']['n']}，第 2 步较好 "

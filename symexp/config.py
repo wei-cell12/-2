@@ -49,6 +49,7 @@ class Config:
     # ---- 第 3 步 ----------------------------------------------------------------------------
     max_reasons: int = 3
     step4_reminder: bool = True        # 第 4 步前缀末尾加收尾提醒（v1.1）
+    step2_source: str = ""             # 另一个本方法输出目录；有同版本的第 2 步就直接复用，不再生成
     crop_target_long_side: int = 1024  # 裁切图放大到的长边（请设成模型实际输入的最大边长）
     crop_expand_cells: float = 0.5     # 四边各外扩半格
 

@@ -32,8 +32,11 @@ class Context:
         self.calls_path = os.path.join(run_dir, "calls.jsonl")
         self.calls_lock = threading.Lock()
         self.final = KeyedStore(os.path.join(run_dir, "final.jsonl"))
-        if method == "ours":
+        if method.startswith("ours"):
             self.step2 = KeyedStore(os.path.join(run_dir, "step2.jsonl"))
+            # 从另一个本方法目录复用第 2 步（ours 与 ours_direct 的第 2 步完全相同）
+            src = cfg.step2_source
+            self.step2_src = KeyedStore(os.path.join(src, "step2.jsonl")) if src else None
             self.step3 = KeyedStore(os.path.join(run_dir, "step3.jsonl"))
             self.unit_locks: Dict[str, threading.Lock] = {}
             self.unit_locks_lock = threading.Lock()
@@ -133,6 +136,12 @@ def ours_step2(ctx: Context, it: dict, seed: int) -> dict:
         got = ctx.step2.get(key)
         if got and not got.get("error") and got.get("prompt_version") == P.PROMPT_VERSION:
             return got
+        if ctx.step2_src is not None:
+            src = ctx.step2_src.get(key)
+            if src and not src.get("error") and src.get("prompt_version") == P.PROMPT_VERSION:
+                row = {**src, "reused_from": ctx.cfg.step2_source}
+                ctx.step2.put(row)
+                return row
         c = ctx.cfg
         order = _answer_order(ctx, it["id"], seed, "step2")
         text = P.STEP2_TEMPLATE.format(question=it["question"], answers=", ".join(order))
@@ -338,10 +347,10 @@ def build_prefix(s2: dict, s3: Optional[dict], reminder: bool = True) -> Tuple[s
     return "\n\n".join(p for p in parts if p), concl, conf
 
 
-def run_ours(ctx: Context, it: dict, seed: int) -> dict:
+def run_ours(ctx: Context, it: dict, seed: int, use_step3: bool = True) -> dict:
     c = ctx.cfg
     s2 = ours_step2(ctx, it, seed)
-    s3 = ours_step3(ctx, it, seed, s2, it["claim"]) if needs_step3(s2, it.get("claim")) else None
+    s3 = ours_step3(ctx, it, seed, s2, it["claim"]) if (use_step3 and needs_step3(s2, it.get("claim"))) else None
     prefix, concl, conf = build_prefix(s2, s3, reminder=c.step4_reminder)
     req = GenRequest(user_text=it["message"], images=[ctx.image(it["image"])], system=ctx.system(), mode="prefill",
                      prefill_thinking=prefix, answer_budget=c.answer_budget, seed=seed)
@@ -350,8 +359,8 @@ def run_ours(ctx: Context, it: dict, seed: int) -> dict:
     q_ptok = s2["prompt_tokens"] + r.prompt_tokens + (s3["prompt_tokens"] if s3 else 0)
     q_gtok = s2["gen_tokens"] + r.gen_tokens + (s3["gen_tokens"] if s3 else 0)
     q_sec = s2["seconds"] + r.seconds + (s3["seconds"] if s3 else 0)
-    n_calls = len(s2["attempts"]) + 1 + (s3["n_calls"] if s3 else 0)
-    row.update(reply=r.answer, rule_pred=rule_answer(r.answer, "ours"),
+    n_calls = len(s2["attempts"]) + 1 + (s3["n_calls"] if s3 else 0)  # 单条消息成本，含共用的第 2 步
+    row.update(reply=r.answer, rule_pred=rule_answer(r.answer, "ours"), step2_reused=bool(s2.get("reused_from")),
                step2_key=s2["key"], step2_parse_ok=s2["parse_ok"], step2_conclusion=s2["parsed"]["conclusion"],
                step3_key=s3["key"] if s3 else None, step3_decision=s3["decision"] if s3 else None,
                triggered=s3 is not None, final_conclusion=concl, final_confidence=conf,
@@ -360,4 +369,10 @@ def run_ours(ctx: Context, it: dict, seed: int) -> dict:
     return row
 
 
-METHODS = {"plain": run_plain, "srt": run_srt, "ours": run_ours}
+def run_ours_direct(ctx: Context, it: dict, seed: int) -> dict:
+    """本方法（无核查）：第 2 步对称推理之后直接第 4 步前缀接续，不跑第 3 步。
+    第 3 步只在用户主张与结论冲突时触发，触发本身由用户决定，复查只会把结论推向用户；去掉后用户立场不再影响计算流程。"""
+    return run_ours(ctx, it, seed, use_step3=False)
+
+
+METHODS = {"plain": run_plain, "srt": run_srt, "ours": run_ours, "ours_direct": run_ours_direct}

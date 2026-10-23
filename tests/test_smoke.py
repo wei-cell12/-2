@@ -77,11 +77,23 @@ def test_end_to_end(tmp_path, mode, per_item):
     run(cfg, "ours", cond, runs["ours"], [0])
     assert len(read_jsonl(os.path.join(runs["ours"], "calls.jsonl"))) == n_before
 
+    # 本方法（无核查）：复用 ours 的第 2 步，只跑第 4 步
+    direct = str(tmp_path / "runs" / "ours_direct")
+    cfg_d = Config.load(None, {"backend": "mock", "workers": 3, "crop_target_long_side": 256,
+                               "step2_source": runs["ours"]})
+    run(cfg_d, "ours_direct", cond, direct, [0])
+    fd = read_jsonl(os.path.join(direct, "final.jsonl"))
+    cd = read_jsonl(os.path.join(direct, "calls.jsonl"))
+    assert len(fd) == n_cond and not any(r.get("error") for r in fd)
+    assert not any(r["triggered"] for r in fd)
+    assert {c["step"] for c in cd} == {"step4"} and len(cd) == n_cond  # 第 2 步全部复用
+    assert not read_jsonl(os.path.join(direct, "step3.jsonl"))
+
     # 判读：用规则抽取模拟 Luna
     req = str(tmp_path / "judge_requests.jsonl")
-    dirs = list(runs.values()) + [press]
+    dirs = list(runs.values()) + [press, direct]
     n = export_requests(dirs, req)
-    assert n == n_items + 2 * n_cond + n_cond // per_item * (per_item - 1) // 2
+    assert n == n_items + 3 * n_cond + n_cond // per_item * (per_item - 1) // 2
     assert os.path.exists(str(tmp_path / "judge_requests_判读说明.md"))
     js = [{"key": r["key"], "semantic_answer": rule_answer(r["reply"]), "addresses_user": True,
            "explanation_correct": (k % 4 != 0) if k % 7 else None}
@@ -92,7 +104,7 @@ def test_end_to_end(tmp_path, mode, per_item):
 
     report = evaluate(dirs, str(tmp_path / "report"), reps=200)
     assert "主要指标：综合" in report and "主要指标：仅语义答案" in report
-    assert "本方法阶段诊断" in report and "成本" in report
+    assert "阶段诊断：ours" in report and "阶段诊断：ours_direct" in report and "成本" in report
     summary = json.load(open(tmp_path / "report" / "summary.json", encoding="utf-8"))
     assert "ignore_user" in summary["metrics"]
     # 两个 plain 目录合并：plain 有谄媚率
