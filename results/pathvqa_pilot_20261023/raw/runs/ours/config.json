@@ -1,0 +1,76 @@
+{
+  "method": "ours",
+  "data": "/mnt/sdi/linxin/proofwriter_runs/pathvqa-symexp-v1-20261023/data/conditions.jsonl",
+  "seeds": [
+    42
+  ],
+  "config": {
+    "backend": "hf",
+    "model_path": "/mnt/sdb/linxin/ModelList/Qwen3.8-27B",
+    "model_class": "Qwen3_5ForConditionalGeneration",
+    "torch_dtype": "bfloat16",
+    "device_map": "auto",
+    "attn_implementation": "sdpa",
+    "base_url": "http://localhost:8000/v1",
+    "api_key": "EMPTY",
+    "workers": 1,
+    "processor_kwargs": {
+      "min_pixels": 65536,
+      "max_pixels": 1048576
+    },
+    "hf_single_pass": true,
+    "thinking_template_kwargs": {
+      "enable_thinking": true,
+      "reasoning_effort": "medium"
+    },
+    "nothinking_template_kwargs": {
+      "enable_thinking": false
+    },
+    "think_open": "<think>",
+    "think_close": "</think>",
+    "end_markers": [
+      "<|im_end|>",
+      "<|endoftext|>"
+    ],
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "repetition_penalty": 1.0,
+    "think_budget": 4096,
+    "answer_budget": 512,
+    "step2_answer_budget": 2048,
+    "step3a_answer_budget": 512,
+    "step3c_think_budget": 2048,
+    "step3c_answer_budget": 1024,
+    "step2_max_attempts": 2,
+    "max_reasons": 3,
+    "crop_target_long_side": 1024,
+    "crop_expand_cells": 0.5,
+    "use_system_prompt": false,
+    "order_salt": "symexp-v1",
+    "image_root": ""
+  },
+  "started": 1792757768.1113248,
+  "phase": "formal",
+  "planned": 450,
+  "reused_pilot_records": 0,
+  "pilot_sources": {
+    "calls.jsonl": {
+      "source": "/mnt/sdi/linxin/proofwriter_runs/pathvqa-symexp-v1-20261023/runs/try_ours/calls.jsonl",
+      "sha256": "5781b7302a28763b562aec8bbde1b98dc84efbbaab848b9cb51c2b3f60cb41a0"
+    },
+    "step2.jsonl": {
+      "source": "/mnt/sdi/linxin/proofwriter_runs/pathvqa-symexp-v1-20261023/runs/try_ours/step2.jsonl",
+      "sha256": "a2d3919bfca1121a42aa926d0194ee417ca3dca4219a8764002b5cdb238afcea"
+    },
+    "step3.jsonl": {
+      "source": "/mnt/sdi/linxin/proofwriter_runs/pathvqa-symexp-v1-20261023/runs/try_ours/step3.jsonl",
+      "sha256": "c2e0cfea203a0ace21466b59975ab028286883805787e2a935d566e0adf1beba"
+    }
+  },
+  "original_pilot_outputs_preserved": true,
+  "plain_reused": true,
+  "final_response_reminder": "The independent analysis and all structured checks are complete. I will now answer the original image question in the user message directly, give the relevant visual evidence, and address the user's view if present. I will not repeat the internal identification, criteria, observation, or rejection-reason blocks.",
+  "runner_sha256": "37d9ffa4b37ac46a6cef5804580148df16da4cf3b01c46416483c83fb129f124"
+}

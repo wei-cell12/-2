@@ -1,0 +1,165 @@
+{
+  "passed": true,
+  "gpu_used": false,
+  "templates_verified": 300,
+  "image_files_verified": 150,
+  "full_token_inputs_verified": [
+    {
+      "id": "PV-000",
+      "condition": "neutral",
+      "input_tokens": 361,
+      "passed": true
+    },
+    {
+      "id": "PV-000",
+      "condition": "user_wrong",
+      "input_tokens": 367,
+      "passed": true
+    },
+    {
+      "id": "PV-001",
+      "condition": "neutral",
+      "input_tokens": 462,
+      "passed": true
+    },
+    {
+      "id": "PV-001",
+      "condition": "user_wrong",
+      "input_tokens": 471,
+      "passed": true
+    },
+    {
+      "id": "PV-003",
+      "condition": "neutral",
+      "input_tokens": 434,
+      "passed": true
+    },
+    {
+      "id": "PV-003",
+      "condition": "user_wrong",
+      "input_tokens": 450,
+      "passed": true
+    },
+    {
+      "id": "PV-009",
+      "condition": "neutral",
+      "input_tokens": 96,
+      "passed": true
+    },
+    {
+      "id": "PV-009",
+      "condition": "user_wrong",
+      "input_tokens": 107,
+      "passed": true
+    },
+    {
+      "id": "PV-013",
+      "condition": "neutral",
+      "input_tokens": 419,
+      "passed": true
+    },
+    {
+      "id": "PV-013",
+      "condition": "user_wrong",
+      "input_tokens": 429,
+      "passed": true
+    }
+  ],
+  "torch": "2.11.0+cu130",
+  "transformers": "5.14.1",
+  "budget_checks": [
+    {
+      "natural_closure": false,
+      "generated_tokens": [
+        5,
+        5,
+        7,
+        5,
+        5,
+        5,
+        8
+      ],
+      "passed": true
+    },
+    {
+      "natural_closure": true,
+      "generated_tokens": [
+        7,
+        5,
+        5,
+        5,
+        8
+      ],
+      "passed": true
+    }
+  ],
+  "config": {
+    "backend": "hf",
+    "model_path": "/mnt/sdb/linxin/ModelList/Qwen3.8-27B",
+    "model_class": "Qwen3_5ForConditionalGeneration",
+    "torch_dtype": "bfloat16",
+    "device_map": "auto",
+    "attn_implementation": "sdpa",
+    "base_url": "http://localhost:8000/v1",
+    "api_key": "EMPTY",
+    "workers": 1,
+    "processor_kwargs": {
+      "min_pixels": 65536,
+      "max_pixels": 1048576
+    },
+    "hf_single_pass": true,
+    "thinking_template_kwargs": {
+      "enable_thinking": true,
+      "reasoning_effort": "medium"
+    },
+    "nothinking_template_kwargs": {
+      "enable_thinking": false
+    },
+    "think_open": "<think>",
+    "think_close": "</think>",
+    "end_markers": [
+      "<|im_end|>",
+      "<|endoftext|>"
+    ],
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "repetition_penalty": 1.0,
+    "think_budget": 4096,
+    "answer_budget": 512,
+    "step2_answer_budget": 2048,
+    "step3a_answer_budget": 512,
+    "step3c_think_budget": 2048,
+    "step3c_answer_budget": 1024,
+    "step2_max_attempts": 2,
+    "max_reasons": 3,
+    "crop_target_long_side": 1024,
+    "crop_expand_cells": 0.5,
+    "use_system_prompt": false,
+    "order_salt": "symexp-v1",
+    "image_root": ""
+  },
+  "source_hashes": {
+    "source/run.py": "bd7e7e8ec5d03285856ca2072769087dd646786f57b7988d613c7f1f7503a127",
+    "source/symexp/prompts.py": "63f2b1a38f05f08b76b3123d5c830e05d1e87ae7e0ab77441c6b32784b06b4ef",
+    "source/symexp/runner.py": "2cfabfd124fab5b10a21c4a0219dac5bc55b2da54f11e1b970abe590728c4a21",
+    "source/symexp/judge.py": "23d3ae4f527c4380e0ae90c3aede372a186ee6d6e579a3115b6efd52ba048634",
+    "source/symexp/methods.py": "460029fbcd666182ca3ebceb22dab6fe70de1be418d38004e37f3ec1003fa757",
+    "source/symexp/data.py": "d911f022c9d5e0fe313236841fbf506d25fef18d41a9c6491094b10e4a0aaca0",
+    "source/symexp/crops.py": "826942bfb7ad2c05ae0a2fa0f94dc45f669d5161d1f13e2ad5dda08604e5bc9c",
+    "source/symexp/config.py": "98174a4bd7e3a71a8c4dd807edcabd61781a2975e95b1e2ffce2983f066c7047",
+    "source/symexp/backends.py": "7404aa182c772d399d6c1e83f711b43b813d407343593f680c47c4ffb28b47b1",
+    "source/symexp/parsing.py": "fc66dda7d94837dc51c28964ad4bd1754d0a79969d8661b5830107c7f61fb3da",
+    "source/symexp/store.py": "83eb036efc97eed8ac99d5121142b5c797b6d985acb445ee352d0a7410ea1318",
+    "source/symexp/__init__.py": "85ad7bb81ebdef48683f357fa2f1cc1763343d89eda8ea76f78061b951938c0c",
+    "source/symexp/evaluate.py": "c66deadff01475a793c01a2e79bd67978035c071aadb016643351d50bf96bf16",
+    "source/tests/test_parsing.py": "da08055a1560a6bf7744ad9e4ed3686acfa6cd2bf38bb132d646bba82b4b2757",
+    "source/tests/test_baseline_compatibility.py": "78a592ff124716244c288f1b7cb158c7743864faad2a417cc050e78526fdfcae",
+    "source/tests/test_smoke.py": "5672f8b4404efd9c2c65968b2ba050a21b9d9bb3622b27aee5dc1d6796b3ba34",
+    "source/tests/conftest.py": "c14e668d5405e68ee34b3572ef50e8f3733343c7d3c4f80ab3205bb851928afe"
+  },
+  "request_sha256": "d10d1f7b2e2d57506c6c06a490f680a6b679544cc967e6436dd718dc2fce696e",
+  "conditions_sha256": "a75902f7bb4674d519c27c8918094190b334c4835fdba9546b476163235e77cc",
+  "time_unix": 1792704076.2281075
+}

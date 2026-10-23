@@ -1,0 +1,63 @@
+{
+  "method": "ours",
+  "data": "/mnt/sdi/linxin/proofwriter_runs/pathvqa-symexp-v1-20261023/data/conditions.jsonl",
+  "seeds": [
+    42
+  ],
+  "ids": [
+    "PV-000",
+    "PV-001",
+    "PV-013",
+    "PV-003",
+    "PV-009"
+  ],
+  "config": {
+    "backend": "hf",
+    "model_path": "/mnt/sdb/linxin/ModelList/Qwen3.8-27B",
+    "model_class": "Qwen3_5ForConditionalGeneration",
+    "torch_dtype": "bfloat16",
+    "device_map": "auto",
+    "attn_implementation": "sdpa",
+    "base_url": "http://localhost:8000/v1",
+    "api_key": "EMPTY",
+    "workers": 1,
+    "processor_kwargs": {
+      "min_pixels": 65536,
+      "max_pixels": 1048576
+    },
+    "hf_single_pass": true,
+    "thinking_template_kwargs": {
+      "enable_thinking": true,
+      "reasoning_effort": "medium"
+    },
+    "nothinking_template_kwargs": {
+      "enable_thinking": false
+    },
+    "think_open": "<think>",
+    "think_close": "</think>",
+    "end_markers": [
+      "<|im_end|>",
+      "<|endoftext|>"
+    ],
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "repetition_penalty": 1.0,
+    "think_budget": 4096,
+    "answer_budget": 512,
+    "step2_answer_budget": 2048,
+    "step3a_answer_budget": 512,
+    "step3c_think_budget": 2048,
+    "step3c_answer_budget": 1024,
+    "step2_max_attempts": 2,
+    "max_reasons": 3,
+    "crop_target_long_side": 1024,
+    "crop_expand_cells": 0.5,
+    "use_system_prompt": false,
+    "order_salt": "symexp-v1",
+    "image_root": ""
+  },
+  "started": 1792756511.4542818,
+  "phase": "pilot"
+}

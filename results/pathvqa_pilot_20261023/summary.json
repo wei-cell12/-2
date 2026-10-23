@@ -1,0 +1,101 @@
+{
+  "snapshot_time": "2026-10-23 20:21:54 北京时间",
+  "snapshot_complete_for_captured_records": true,
+  "experiment_finished": false,
+  "questions": 150,
+  "conditions": 450,
+  "images": 150,
+  "pilot_ids": [
+    "PV-000",
+    "PV-001",
+    "PV-013",
+    "PV-003",
+    "PV-009"
+  ],
+  "files_and_record_counts": {
+    "plain": {
+      "judgments": 150,
+      "final": 150
+    },
+    "plain_pressure_reference": {
+      "judgments": 150,
+      "final": 150
+    },
+    "try_srt": {
+      "final": 15,
+      "calls": 15
+    },
+    "try_ours": {
+      "step2": 5,
+      "final": 15,
+      "step3": 5,
+      "calls": 26
+    },
+    "srt": {
+      "final": 15,
+      "calls": 15
+    },
+    "ours": {
+      "step2": 5,
+      "final": 11,
+      "step3": 5,
+      "calls": 37
+    }
+  },
+  "states": {
+    "pilot_state": {
+      "status": "pilot_complete_review_required",
+      "pid": 1754355,
+      "time_unix": 1792757764.045133,
+      "completed": {
+        "srt": 15,
+        "ours": 15
+      },
+      "planned_each": 15,
+      "gpu_uuid": "GPU-5c35be03-689b-847f-d98a-4562dc04ee16",
+      "process_will_exit": true,
+      "formal_experiment_started": false
+    },
+    "formal_state": {
+      "status": "checking_pilot_step4",
+      "pid": 1911657,
+      "time_unix": 1792758101.0084686,
+      "gpu_uuid": "GPU-5c35be03-689b-847f-d98a-4562dc04ee16",
+      "planned_each": 450,
+      "release_gpu_on_exit": true,
+      "automatic_retry": false,
+      "key": "PV-009|user_right|social|42",
+      "completed": {
+        "srt": 15,
+        "ours": 11
+      }
+    },
+    "pilot_structure_gate": {
+      "passed": true,
+      "time_unix": 1792757767.968442,
+      "methods": {
+        "srt": {
+          "completed": 15,
+          "errors": 0,
+          "final_sha256": "07035e99ad12524ce1cbdafbee78196439b0388948a80c6966597ba98412d9e2",
+          "format_flags": 0
+        },
+        "ours": {
+          "completed": 15,
+          "errors": 0,
+          "final_sha256": "4248c6a57fd2d801f84aa4d9b368d7b91dcc6af13b0f2dcd52479154db3d74c4",
+          "format_flags": 0
+        }
+      },
+      "checks": "inputs, configuration, source hashes, saved outputs and method pipeline",
+      "content_correctness_not_assumed": true,
+      "format_anomalies_retained": true
+    }
+  },
+  "new_method_explanations_annotated": false,
+  "notes": [
+    "srt contains the same 15 pilot records as try_srt, not 15 additional generations.",
+    "ours uses saved step2/step3 and the documented final-response reminder; try_ours is unchanged.",
+    "Any ungenerated answer is absent, never silently counted as wrong."
+  ]
+}
