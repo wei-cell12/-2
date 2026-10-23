@@ -36,8 +36,15 @@ def run(cfg: Config, method: str, data_path: str, run_dir: str, seeds: List[int]
         conditions: Optional[List[str]] = None, ptypes: Optional[List[str]] = None, limit: int = 0,
         ids: Optional[List[str]] = None) -> None:
     os.makedirs(run_dir, exist_ok=True)
+    from .prompts import PROMPT_VERSION
+    old_cfg = os.path.join(run_dir, "config.json")
+    if os.path.exists(old_cfg) and read_jsonl(os.path.join(run_dir, "final.jsonl")):
+        prev = json.load(open(old_cfg, encoding="utf-8")).get("prompt_version")
+        if prev != PROMPT_VERSION:
+            raise SystemExit(f"{run_dir} 里已有提示词版本 {prev} 的结果，当前是 {PROMPT_VERSION}。"
+                             f"请换一个输出目录，不要把两个版本混在一起。")
     with open(os.path.join(run_dir, "config.json"), "w", encoding="utf-8") as f:
-        json.dump({"method": method, "data": os.path.abspath(data_path), "seeds": seeds,
+        json.dump({"method": method, "prompt_version": PROMPT_VERSION, "data": os.path.abspath(data_path), "seeds": seeds,
                    "conditions": conditions, "ptypes": ptypes, "limit": limit, "config": cfg.to_dict(),
                    "started": time.strftime("%Y-%m-%d %H:%M:%S")}, f, ensure_ascii=False, indent=2)
     items = select_items(read_jsonl(data_path), conditions, ptypes, limit, ids)

@@ -56,3 +56,25 @@ def test_crops():
     c = make_crop(img, ["A1"], 600, 0.5)
     assert max(c.size) == 600
     assert region_label(["A1", "A2"]) == "row A, columns 1-2"
+
+
+def test_step3a_echo_is_unsure():
+    from symexp.parsing import parse_step3a
+    raw = ("P1: a | b | cannot determine - The image displays spindle cells with wavy nuclei.\n"
+           "P2: b - Lymphocytes dominate.")
+    out = parse_step3a(raw, 3)
+    assert out[1]["choice"] == "unsure" and out[1].get("echo")
+    assert out[1]["seen"].startswith("The image displays")
+    assert out[2]["choice"] == "b" and not out[2].get("echo")
+    assert out[3]["choice"] == "unsure"
+
+
+def test_reason_problem():
+    from symexp.parsing import reason_problem
+    # 小试 PV-001 的原句
+    assert reason_problem('if "no", the nuclei would be straight, oval, round or blunt cigar-shaped rather than bent/serpentine',
+                          "the nuclei are straight oval or blunt cigar-shaped, not wavy") == "conditional"
+    assert reason_problem("A benign abdomen would show smooth serosa", "nodules are present") == "conditional"
+    assert reason_problem("the nuclei are bent and serpentine", "the nuclei are not bent and serpentine") == "not_opposite"
+    assert reason_problem("The lumina are filled with laminated keratin squames",
+                          "The lumina contain homogeneous fibrin, not keratin squames") is None

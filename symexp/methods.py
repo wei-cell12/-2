@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""三种方法：plain、SRT 提示版、本方法（对称推理 + 否定理由核查 + 思考前缀接续）。"""
+"""三种方法：plain、SRT 提示版、本方法（对称推理 + 否定理由核查 + 思考前缀接续）。
+
+第 2、3 步的存档带 prompt_version；提示词版本变了就重新生成，不复用旧存档。"""
 
 import json
 import os
@@ -129,7 +131,7 @@ def ours_step2(ctx: Context, it: dict, seed: int) -> dict:
     key = f"{it['id']}|{seed}"
     with ctx.lock_for("s2|" + key):
         got = ctx.step2.get(key)
-        if got and not got.get("error"):
+        if got and not got.get("error") and got.get("prompt_version") == P.PROMPT_VERSION:
             return got
         c = ctx.cfg
         order = _answer_order(ctx, it["id"], seed, "step2")
@@ -150,7 +152,8 @@ def ours_step2(ctx: Context, it: dict, seed: int) -> dict:
             attempts.append({"seed": s, "ok": parsed["ok"], "blocks_found": parsed["blocks_found"]})
             if parsed["ok"]:
                 break
-        row = {"key": key, "id": it["id"], "seed": seed, "answer_order": order, "thinking": r.thinking,
+        row = {"key": key, "prompt_version": P.PROMPT_VERSION, "id": it["id"], "seed": seed,
+               "answer_order": order, "thinking": r.thinking,
                "answer": r.answer, "thinking_closed": r.thinking_closed, "parsed": parsed, "attempts": attempts,
                "parse_ok": parsed["ok"], "prompt_tokens": ptok, "gen_tokens": gtok, "seconds": secs}
         ctx.step2.put(row)
@@ -175,7 +178,7 @@ def ours_step3(ctx: Context, it: dict, seed: int, s2: dict, claim: str) -> dict:
     key = f"{it['id']}|{seed}|{claim}"
     with ctx.lock_for("s3|" + key):
         got = ctx.step3.get(key)
-        if got and not got.get("error"):
+        if got and not got.get("error") and got.get("prompt_version") == P.PROMPT_VERSION:
             return got
         c = ctx.cfg
         img = ctx.image(it["image"])
@@ -196,7 +199,9 @@ def ours_step3(ctx: Context, it: dict, seed: int, s2: dict, claim: str) -> dict:
             crops.append((t, make_crop(img, cells, c.crop_target_long_side, c.crop_expand_cells)))
             return len(crops) + 1
 
-        reasons = [r for r in p2["reasons"] if r["rejected"] == claim][:c.max_reasons]
+        all_reasons = [r for r in p2["reasons"] if r["rejected"] == claim]
+        dropped = [{**r} for r in all_reasons if r.get("invalid")]
+        reasons = [r for r in all_reasons if not r.get("invalid")][:c.max_reasons]
         skip_3a = p2["conclusion"] == "undecidable" or not reasons
         checks = []
         go_3c = skip_3a
@@ -238,6 +243,7 @@ def ours_step3(ctx: Context, it: dict, seed: int, s2: dict, claim: str) -> dict:
                     picked_claim = (o["choice"] == "a") == ch["a_is_claim"]
                     ch["result"] = "held" if picked_claim else "overturned"
                 ch["seen"] = o["seen"]
+                ch["echo"] = bool(o.get("echo"))
             raw_3a = r.answer
             # ---- 3b 判定 ---------------------------------------------------------------------
             n_over = sum(ch["result"] == "overturned" for ch in checks)
@@ -294,8 +300,10 @@ def ours_step3(ctx: Context, it: dict, seed: int, s2: dict, claim: str) -> dict:
             else:
                 decision = (decision or "") + "|3c_parse_failed"
 
-        row = {"key": key, "id": it["id"], "seed": seed, "claim": claim, "step2_conclusion": p2["conclusion"],
+        row = {"key": key, "prompt_version": P.PROMPT_VERSION, "id": it["id"], "seed": seed, "claim": claim,
+               "step2_conclusion": p2["conclusion"],
                "decision": decision, "ran_3a": not skip_3a, "ran_3c": go_3c, "checks": checks, "raw_3a": raw_3a,
+               "dropped_reasons": dropped,
                "step3c": c3, "crop_regions": [list(k_) for k_, _ in crops],
                "final_conclusion": final_concl, "final_confidence": final_conf,
                "n_calls": n_calls, "prompt_tokens": ptok, "gen_tokens": gtok, "seconds": secs}
@@ -303,7 +311,7 @@ def ours_step3(ctx: Context, it: dict, seed: int, s2: dict, claim: str) -> dict:
         return row
 
 
-def build_prefix(s2: dict, s3: Optional[dict]) -> Tuple[str, Optional[str], Optional[str]]:
+def build_prefix(s2: dict, s3: Optional[dict], reminder: bool = True) -> Tuple[str, Optional[str], Optional[str]]:
     parts = [s2["thinking"].strip(), s2["answer"].strip()]
     concl, conf = s2["parsed"]["conclusion"], s2["parsed"]["confidence"]
     if s3 is not None:
@@ -325,6 +333,8 @@ def build_prefix(s2: dict, s3: Optional[dict]) -> Tuple[str, Optional[str], Opti
         parts.append(P.FINAL_LINE_UNDECIDABLE)
     elif concl in ("yes", "no"):
         parts.append(P.FINAL_LINE.format(answer=concl, confidence=conf or "medium"))
+    if reminder:
+        parts.append(P.FINAL_RESPONSE_REMINDER)
     return "\n\n".join(p for p in parts if p), concl, conf
 
 
@@ -332,7 +342,7 @@ def run_ours(ctx: Context, it: dict, seed: int) -> dict:
     c = ctx.cfg
     s2 = ours_step2(ctx, it, seed)
     s3 = ours_step3(ctx, it, seed, s2, it["claim"]) if needs_step3(s2, it.get("claim")) else None
-    prefix, concl, conf = build_prefix(s2, s3)
+    prefix, concl, conf = build_prefix(s2, s3, reminder=c.step4_reminder)
     req = GenRequest(user_text=it["message"], images=[ctx.image(it["image"])], system=ctx.system(), mode="prefill",
                      prefill_thinking=prefix, answer_budget=c.answer_budget, seed=seed)
     r = ctx.call("step4", final_key(it, seed), req)

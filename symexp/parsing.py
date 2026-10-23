@@ -93,6 +93,23 @@ def norm_type(t: Optional[str]) -> str:
     return "contradicting"
 
 
+def _words(t: str) -> set:
+    return set(re.findall(r"[a-z]+", t.lower())) - {"the", "a", "an", "is", "are", "of", "in", "and", "or", "not", "no"}
+
+
+def reason_problem(claim: str, opposite: str) -> Optional[str]:
+    """否定理由能不能拿去核查。返回问题描述；没问题返回 None。
+    小试里出现过：claim 写成 "if no, the nuclei would be straight ..."，和 opposite 说的是同一件事，
+    3a 的两个选项根本不对立，核查结果没有意义。"""
+    c = claim.strip().strip('"').lower()
+    if re.match(r"(if|assuming|suppose|were)\b", c) or re.search(r"\bwould (be|show|have|look)\b", c):
+        return "conditional"
+    a, b = _words(claim), _words(opposite)
+    if a and b and len(a & b) / len(a | b) >= 0.8:
+        return "not_opposite"
+    return None
+
+
 def parse_step2(answer_text: str) -> Dict:
     b = split_blocks(answer_text)
     concl, conf = parse_conclusion(b.get("CONCLUSION", []))
@@ -107,7 +124,8 @@ def parse_step2(answer_text: str) -> Dict:
             continue
         reasons.append({"rejected": norm_answer(f.get("rejected")), "type": norm_type(f.get("type")),
                         "claim": f["claim"], "opposite": f["opposite"], "where": f.get("where", ""),
-                        "cells": parse_cells(f.get("where")), "confidence": (f.get("confidence") or "").lower()})
+                        "cells": parse_cells(f.get("where")), "confidence": (f.get("confidence") or "").lower(),
+                        "invalid": reason_problem(f["claim"], f["opposite"])})
     return {
         "ok": concl is not None,
         "conclusion": concl, "confidence": conf,
@@ -138,7 +156,14 @@ def parse_step3a(text: str, n_pairs: int) -> Dict[int, Dict[str, str]]:
         if m:
             k = int(m.group(1))
             ch = m.group(2).lower()
-            out[k] = {"choice": ch if ch in ("a", "b") else "unsure", "seen": (m.group(3) or "").strip()}
+            seen = (m.group(3) or "").strip()
+            # 照抄格式说明（"a | b | cannot determine"）不算作选择
+            echo = bool(re.match(r"\s*\(?\s*(a|b)\s*\)?\s*\|\s*\(?\s*(a|b|cannot)", line.split(":", 1)[-1], re.I))
+            if echo:
+                seen = re.sub(r"^\s*(?:\(?[ab]\)?\s*\|\s*)+(?:cannot determine)?\s*[-–—:]?\s*", "", seen, flags=re.I)
+                out[k] = {"choice": "unsure", "seen": seen, "echo": True}
+            else:
+                out[k] = {"choice": ch if ch in ("a", "b") else "unsure", "seen": seen}
     for k in range(1, n_pairs + 1):
         out.setdefault(k, {"choice": "unsure", "seen": ""})
     return out
