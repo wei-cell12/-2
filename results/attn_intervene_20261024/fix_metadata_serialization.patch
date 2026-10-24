@@ -1,0 +1,27 @@
+--- a/references.py
++++ b/references.py
+@@ -34,4 +34,4 @@
+                 randref[s,l,h,fake]=rng.permutation(r[s,l,h,e])
+     assert np.allclose(r.sum(-1),1) and not (mask&randmask).any()
+     np.savez_compressed(path,layer_ids=np.array(LAYERS),E_r=r,E_mask=mask,random_r=randref,random_mask=randmask,heads=heads,grid_hw=d['grid_hw'],n_img=n)
+-    return dict(id=item,n_img=n,E_size=k,E_fraction=k/n,heads_count=int(heads.sum()),heads=[dict(layer=LAYERS[l],head=h,neutral_think_image_mass=float(mass[0,l,h,0])) for l,h in zip(*heads.nonzero())],head_selection='exact top96 of384 by neutral thinking image total; stable flattened layer/head tie-break',E_selection='ceil(0.2*n_img), stable descending r',random_seed=RANDOM_SEED,random_seed_derivation='first8 little-endian bytes SHA256(seed|item|stage|layer|head); NumPy default_rng; choose non-E without replacement and independently permute E reference values')
++    return dict(id=item,n_img=n,E_size=k,E_fraction=k/n,heads_count=int(heads.sum()),heads=[dict(layer=LAYERS[l],head=int(h),neutral_think_image_mass=float(mass[0,l,h,0])) for l,h in zip(*heads.nonzero())],head_selection='exact top96 of384 by neutral thinking image total; stable flattened layer/head tie-break',E_selection='ceil(0.2*n_img), stable descending r',random_seed=RANDOM_SEED,random_seed_derivation='first8 little-endian bytes SHA256(seed|item|stage|layer|head); NumPy default_rng; choose non-E without replacement and independently permute E reference values')
+--- a/numerical_tests.py
++++ b/numerical_tests.py
+@@ -36,10 +36,15 @@
+         from pathlib import Path
+         a,b=Path(tmp)/'a.npz',Path(tmp)/'b.npz'
+         m=construct('CPU-TEST',d,a);construct('CPU-TEST',d,b)
++        # Regression: reference metadata must survive the runner's actual JSON save.
++        from run_experiment import write
++        metadata_path=Path(tmp)/'meta.json';write(metadata_path,m)
++        restored=json.loads(metadata_path.read_text())
++        assert restored==m and all(type(h['head']) is int for h in restored['heads'])
+         x,y=np.load(a),np.load(b)
+         assert all(np.array_equal(x[k],y[k]) for k in x.files)
+         assert m['heads_count']==96 and m['E_size']==9
+         assert not (x['E_mask']&x['random_mask']).any()
+         assert np.allclose((x['E_r']*x['E_mask']).sum(-1),x['random_r'].sum(-1))
+-    print(json.dumps(dict(ok=True,properties=tested,random_reference_checks=True,torch=torch.__version__)))
++    print(json.dumps(dict(ok=True,properties=tested,random_reference_checks=True,metadata_json_roundtrip=True,torch=torch.__version__)))
+ if __name__=='__main__':main()

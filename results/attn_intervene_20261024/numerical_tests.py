@@ -36,10 +36,15 @@ def main():
         from pathlib import Path
         a,b=Path(tmp)/'a.npz',Path(tmp)/'b.npz'
         m=construct('CPU-TEST',d,a);construct('CPU-TEST',d,b)
+        # Regression: reference metadata must survive the runner's actual JSON save.
+        from run_experiment import write
+        metadata_path=Path(tmp)/'meta.json';write(metadata_path,m)
+        restored=json.loads(metadata_path.read_text())
+        assert restored==m and all(type(h['head']) is int for h in restored['heads'])
         x,y=np.load(a),np.load(b)
         assert all(np.array_equal(x[k],y[k]) for k in x.files)
         assert m['heads_count']==96 and m['E_size']==9
         assert not (x['E_mask']&x['random_mask']).any()
         assert np.allclose((x['E_r']*x['E_mask']).sum(-1),x['random_r'].sum(-1))
-    print(json.dumps(dict(ok=True,properties=tested,random_reference_checks=True,torch=torch.__version__)))
+    print(json.dumps(dict(ok=True,properties=tested,random_reference_checks=True,metadata_json_roundtrip=True,torch=torch.__version__)))
 if __name__=='__main__':main()
