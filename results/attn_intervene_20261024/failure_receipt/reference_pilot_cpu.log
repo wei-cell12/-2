@@ -1,0 +1,27 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/mnt/sdg/linxin/pathvqa-attn-intervene-20261024/run_experiment.py", line 72, in ensure_reference
+    write(ROOT/'reference_meta'/f"{item['id']}.json",meta)
+  File "/mnt/sdg/linxin/pathvqa-attn-intervene-20261024/run_experiment.py", line 18, in write
+    temp=path.with_suffix(path.suffix+'.tmp');temp.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n');os.replace(temp,path)
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/lib/python3.12/json/__init__.py", line 238, in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+  File "/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/lib/python3.12/json/encoder.py", line 202, in encode
+    chunks = list(chunks)
+             ^^^^^^^^^^^^
+  File "/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/lib/python3.12/json/encoder.py", line 432, in _iterencode
+    yield from _iterencode_dict(o, _current_indent_level)
+  File "/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/lib/python3.12/json/encoder.py", line 406, in _iterencode_dict
+    yield from chunks
+  File "/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/lib/python3.12/json/encoder.py", line 326, in _iterencode_list
+    yield from chunks
+  File "/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/lib/python3.12/json/encoder.py", line 406, in _iterencode_dict
+    yield from chunks
+  File "/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/lib/python3.12/json/encoder.py", line 439, in _iterencode
+    o = _default(o)
+        ^^^^^^^^^^^
+  File "/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/lib/python3.12/json/encoder.py", line 180, in default
+    raise TypeError(f'Object of type {o.__class__.__name__} '
+TypeError: Object of type int64 is not JSON serializable

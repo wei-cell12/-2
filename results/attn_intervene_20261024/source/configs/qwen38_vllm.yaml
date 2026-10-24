@@ -1,0 +1,27 @@
+# Qwen3.8-27B，vLLM OpenAI 兼容服务后端
+# 启动服务时不要加 --reasoning-parser，让思考以 <think>…</think> 原样留在 content 里，
+# 否则思考前缀接续（第 4 步）与两段式思考预算都无法正确工作。
+backend: openai
+base_url: http://localhost:8000/v1
+model_path: Qwen3.8-27B                    # ← 服务端注册的模型名
+workers: 16
+use_system_prompt: false
+# 注意：vLLM 后端的开思考调用是两段式（思考后重新预填再生成回答），与预实验的一次生成不同；
+# 要和复用的 plain 严格对齐，请用 hf 后端。
+
+thinking_template_kwargs: {enable_thinking: true, reasoning_effort: medium}
+nothinking_template_kwargs: {enable_thinking: false}
+
+temperature: 1.0
+top_p: 0.95
+top_k: 20
+min_p: 0.0
+repetition_penalty: 1.0
+
+think_budget: 4096
+answer_budget: 512
+step2_answer_budget: 2048
+step3a_answer_budget: 512
+step3c_think_budget: 2048
+step3c_answer_budget: 1024
+crop_target_long_side: 1024

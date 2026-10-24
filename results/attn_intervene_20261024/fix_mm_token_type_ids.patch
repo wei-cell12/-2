@@ -1,0 +1,17 @@
+--- a/symexp/attn.py
++++ b/symexp/attn.py
+@@ -295,6 +295,14 @@
+     rec = Recorder(torch, image_idx.cpu(), stage_map, rows, chunk=chunk, selfcheck=selfcheck)
+     kw = dict(input_ids=ids_t, attention_mask=torch.ones_like(ids_t), pixel_values=pixel_values,
+               image_grid_thw=grid, use_cache=False)
++    # Rebuild modality labels from the saved IDs, without decoding/re-tokenizing.
++    # Recent Qwen processors require these labels to compute multimodal RoPE.
++    if hasattr(backend.processor, "create_mm_token_type_ids"):
++        mm_types = backend.processor.create_mm_token_type_ids([ids])
++        mm_types = torch.tensor(mm_types, dtype=torch.long, device=dev)
++        if mm_types.shape != ids_t.shape:
++            raise ValueError("mm_token_type_ids shape does not match the saved token sequence")
++        kw["mm_token_type_ids"] = mm_types
+     with torch.inference_mode(), recording(rec):
+         try:
+             model(**kw, logits_to_keep=1)
