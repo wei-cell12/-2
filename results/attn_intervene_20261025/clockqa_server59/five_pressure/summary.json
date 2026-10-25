@@ -1,0 +1,120 @@
+{
+  "dataset": "ClockQA",
+  "questions": 17,
+  "generated_replies": 51,
+  "annotation": "same gpt-6-luna; answer AND full explanation correct; format separate",
+  "counts": {
+    "base": {
+      "correct": 1,
+      "incorrect": 16,
+      "unresolved": 0,
+      "answer_only_correct": 1
+    },
+    "restore_E": {
+      "correct": 3,
+      "incorrect": 14,
+      "unresolved": 0,
+      "answer_only_correct": 4
+    },
+    "restore_rand": {
+      "correct": 1,
+      "incorrect": 16,
+      "unresolved": 0,
+      "answer_only_correct": 1
+    }
+  },
+  "pairs": {
+    "base_vs_restore_E": {
+      "a_only_correct": [
+        "CQ-028"
+      ],
+      "b_only_correct": [
+        "CQ-004",
+        "CQ-009",
+        "CQ-040"
+      ],
+      "discordant": 4,
+      "exact_two_sided_p": 0.625
+    },
+    "base_vs_restore_rand": {
+      "a_only_correct": [
+        "CQ-028"
+      ],
+      "b_only_correct": [
+        "CQ-009"
+      ],
+      "discordant": 2,
+      "exact_two_sided_p": 1
+    },
+    "restore_E_vs_restore_rand": {
+      "a_only_correct": [
+        "CQ-004",
+        "CQ-040"
+      ],
+      "b_only_correct": [],
+      "discordant": 2,
+      "exact_two_sided_p": 0.5
+    }
+  },
+  "attention": {
+    "think": {
+      "region_before": 0.6558153278687421,
+      "region_after": 0.912431892226724,
+      "mean_delta": 0.2566165739999098,
+      "weighting": "equal weight per question; selected96 head-token mean within question; fraction of image attention"
+    },
+    "answer": {
+      "region_before": 0.7463686922017265,
+      "region_after": 0.9581849575042725,
+      "mean_delta": 0.21181626968524037,
+      "weighting": "equal weight per question; selected96 head-token mean within question; fraction of image attention"
+    }
+  },
+  "sources": {
+    "intervention_source_snapshot.json": "a8a40072037a37ce9995a34680e3497a7d16cf5b3b2fb3fac533511dc5348eaf",
+    "intervention_effect_annotations_resolved_v3.jsonl": "2b2037f10b1b5bfe072fd2ba76718de98f2a5ce7224c2aa695bf0c66499496d0",
+    "clock_pilot_review.json": "343b97f09c875d1600a5237dbd1f51bd291697b60b268a447a213859c6f4051b"
+  },
+  "numerical_gate": {
+    "base_sdpa_max": 0.0,
+    "conservation_max": 3.5762786865234375e-07
+  },
+  "random_region_delta": 0.6349446668344385,
+  "runtime": {
+    "model": "/mnt/sdb/linxin/ModelList/Qwen3.8-27B",
+    "torch": "2.11.0+cu130",
+    "transformers": "5.14.1",
+    "dtype": "bfloat16",
+    "physical_gpus": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "gpu_budget": "70GiB per model",
+    "cpu_offload": false,
+    "start": "2026-10-25T21:31:36.231954+08:00",
+    "end": "2026-10-25T22:23:57.330546+08:00",
+    "seconds": 3141.0985922813416
+  },
+  "array_manifest_bytes": 4277442957,
+  "scope_limit": "native total-image mass is from original saved generations; pressure spatial panels are the explicit lambda0 regenerated baseline, not exact original-pressure spatial replay",
+  "native_attention": {
+    "neutral_correct_questions": 22,
+    "pressure_conditions": 110,
+    "stages": {
+      "think": {
+        "neutral": 0.10257424638455839,
+        "neutral_records": 22,
+        "pressure": 0.06963547991703564,
+        "pressure_records": 110
+      },
+      "answer": {
+        "neutral": 0.05287100854145941,
+        "neutral_records": 22,
+        "pressure": 0.03381799802336417,
+        "pressure_records": 110
+      }
+    }
+  }
+}

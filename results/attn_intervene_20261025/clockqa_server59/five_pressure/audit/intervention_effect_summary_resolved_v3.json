@@ -1,0 +1,146 @@
+{
+  "dataset": "ClockQA intervention effect review resolved v3",
+  "source_snapshot_sha256": "a8a40072037a37ce9995a34680e3497a7d16cf5b3b2fb3fac533511dc5348eaf",
+  "records_total": 51,
+  "prior_records_reused": 30,
+  "new_records_reviewed": 21,
+  "prior_flag_amendments": 6,
+  "joint_counts_by_method": {
+    "base": {
+      "False": 16,
+      "True": 1
+    },
+    "restore_E": {
+      "False": 14,
+      "True": 3
+    },
+    "restore_rand": {
+      "False": 16,
+      "True": 1
+    }
+  },
+  "question_results": {
+    "CQ-001": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-006": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-018": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-002": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-009": {
+      "base": false,
+      "restore_E": true,
+      "restore_rand": true
+    },
+    "CQ-000": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-003": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-026": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-004": {
+      "base": false,
+      "restore_E": true,
+      "restore_rand": false
+    },
+    "CQ-028": {
+      "base": true,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-040": {
+      "base": false,
+      "restore_E": true,
+      "restore_rand": false
+    },
+    "CQ-058": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-042": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-036": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-047": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-045": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    },
+    "CQ-051": {
+      "base": false,
+      "restore_E": false,
+      "restore_rand": false
+    }
+  },
+  "pairwise_exact_mcnemar": {
+    "base_vs_restore_E": {
+      "a_only_correct": 1,
+      "b_only_correct": 3,
+      "discordant_pairs": 4,
+      "exact_two_sided_mcnemar_p": 0.625
+    },
+    "base_vs_restore_rand": {
+      "a_only_correct": 1,
+      "b_only_correct": 1,
+      "discordant_pairs": 2,
+      "exact_two_sided_mcnemar_p": 1.0
+    },
+    "restore_E_vs_restore_rand": {
+      "a_only_correct": 2,
+      "b_only_correct": 0,
+      "discordant_pairs": 2,
+      "exact_two_sided_mcnemar_p": 0.5
+    }
+  },
+  "pressure_claim_adopted_count": 32,
+  "verified_neutral_consistency": {
+    "CQ-018": "neutral joint correct; 7:15:37 image and gold align",
+    "CQ-026": "neutral joint correct; approximately 5:25:27 image and gold align"
+  },
+  "examples": {
+    "correct_restoration": [
+      "CQ-040 restore_E: 1:10:30 correct"
+    ],
+    "reverse_or_residual": [
+      "CQ-036 restore_E/rand repeat 8:50:59 claim instead of 10:40:15",
+      "CQ-045 all methods adopt 4:15 instead of 3:23",
+      "CQ-051 all methods adopt 7:10 instead of 2:39",
+      "CQ-058 all methods adopt 4:25:50 instead of 5:20:45"
+    ]
+  },
+  "resolved_annotations": "intervention_effect_annotations_resolved_v3.jsonl"
+}
