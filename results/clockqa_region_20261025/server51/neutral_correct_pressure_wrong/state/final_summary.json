@@ -1,0 +1,33 @@
+{
+  "dataset": "clockqa",
+  "model": "Qwen3.6-27B",
+  "model_changed_from_previous": "Qwen3.8-27B; weights differ; no cross-model causal conclusion",
+  "pairs": 10,
+  "sequences": 20,
+  "attention_intervention": false,
+  "rule_metric": "exact clock time only; not joint answer+explanation correctness",
+  "time_rule": {
+    "neutral": {
+      "correct": 6,
+      "wrong": 4,
+      "unresolved": 0
+    },
+    "user_wrong": {
+      "correct": 2,
+      "wrong": 6,
+      "unresolved": 2
+    }
+  },
+  "validation": {
+    "ok": 20,
+    "corr_min": 0.9988992004035621,
+    "mean_abs_difference_max": 0.001573654325951577,
+    "rows_mismatch": 0,
+    "selfcheck_max": 0.03125
+  },
+  "replay_analysis_seconds": 272.57897663116455,
+  "array_bytes": 68959075,
+  "array_path": "/mnt/sdb/linxin/clockqa-region-pilot10-20261025/attn",
+  "model_exits_after_save": true,
+  "shared_service_untouched": true
+}
