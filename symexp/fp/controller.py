@@ -14,6 +14,10 @@ softmax(QK^T/√d)（fp32）再乘 V，用这个结果作为该层输出；prefi
 阶段：prefill 最后一个查询 = prefill_end；解码时喂入的 token 是 </think> 那一步起算回答阶段，
 之前是思考阶段（与 symexp/attn.py 的定义一致）。
 
+为了不让 GPU 每步停下来等 CPU，所有记录（阶段累加、逐 token 图像总量、干预轨迹、守恒误差）
+都先留在各层所在的 GPU 上，生成结束时一次性拷出；守恒等检查在 GPU 上累计最大值，
+每 check_every 个解码步同步检查一次，生成结束时再检查一次。
+
 自动检查（不通过就抛异常，由调用方停下汇报）：
   - 前 selfcheck_steps 个解码步，16 层显式计算（未修改）与原注意力函数输出逐元素比较：
     允许差 = max(tol_selfcheck, 2⁻⁶·|原输出|)，即 0.05 和 bf16 的 2 个最小精度单位取大者。
@@ -28,13 +32,15 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from . import FLOOR, LAYERS
-from .rules import XP, conservation, matched, restore
+from .rules import XP, matched, restore
 
 ACTIVE = None
 _TARGETS = set()
 _INSTALLED = False
 LAYER_INDEX = {l: i for i, l in enumerate(LAYERS)}
 STAGE_NAMES = ["prefill_end", "think", "answer"]
+TRACE_COLS = ["step", "layer", "head", "stage", "region_before", "region_after", "image_mass", "delta",
+              "requested", "clamped", "cons_image", "cons_text", "cons_row"]
 
 
 class CheckFailed(RuntimeError):
@@ -44,7 +50,8 @@ class CheckFailed(RuntimeError):
 class FPController:
     def __init__(self, torch, mode: str, image_idx, close_id: int, ref: Optional[Dict[str, np.ndarray]] = None,
                  lam: float = 1.0, floor: float = FLOOR, selfcheck_steps: int = 3,
-                 tol_selfcheck: float = 0.05, tol_mass: float = 1e-3):
+                 tol_selfcheck: float = 0.05, tol_mass: float = 1e-3, max_rows: int = 4096 + 512 + 2,
+                 check_every: int = 64):
         if mode not in ("observe", "base", "restore_E", "rand_matched"):
             raise ValueError(mode)
         if mode in ("restore_E", "rand_matched") and ref is None:
@@ -55,6 +62,7 @@ class FPController:
         self.n_img = int(image_idx.numel())
         self.ref, self.lam, self.floor = ref, lam, floor
         self.selfcheck_steps, self.tol_selfcheck, self.tol_mass = selfcheck_steps, tol_selfcheck, tol_mass
+        self.max_rows, self.check_every = max_rows, check_every
         self.step = -1             # 解码步编号；prefill 时为 -1
         self.stage = 0             # 0 = 思考，1 = 回答（只用于解码步）
         self.decode = False
@@ -64,35 +72,31 @@ class FPController:
         self.sums = {}             # layer -> Tensor[3, H, n]（未修改）
         self.sums_after = {}       # layer -> Tensor[3, H, n]（修改后；observe/base 时与 sums 相同）
         self.counts = np.zeros(3, dtype=np.int64)
-        self.pos_mass: List[np.ndarray] = []   # 每个查询一行 [16, H]：该查询对整张图的注意力
-        self.pos_stage: List[int] = []         # 每行的阶段：0 prefill_end，1 思考，2 回答
-        self._row = None
-        self._row_slot = 0
-        self.trace: List[np.ndarray] = []
+        self.pos_buf = {}          # layer -> Tensor[max_rows, H]：每个查询对整张图的注意力（GPU 上）
+        self.pos_stage: List[int] = []   # 每行的阶段：0 prefill_end，1 思考，2 回答
+        self.trace_buf = {}        # layer -> Tensor[max_rows, n_sel, 13]（GPU 上）
+        self.viol = {}             # device -> Tensor[3]：守恒误差最大值、最小概率的相反数、份额未上升的次数
         self.selfchecks: List[dict] = []
+        self._trace_np = None
 
     # ---------------------------------------------------------------- 阶段跟踪（模型 forward 前）
     def pre_hook(self, module, args, kwargs):
         ids = kwargs.get("input_ids", args[0] if args else None)
         if ids is None:
             raise CheckFailed("generate 的 forward 没有 input_ids")
-        if ids.shape[-1] == 1 and self.step >= -1 and self.prefill_calls > 0:
-            self._flush_row()
+        if ids.shape[-1] == 1 and self.prefill_calls > 0:
             self.decode = True
             self.step += 1
+            if self.step + 1 >= self.max_rows:
+                raise CheckFailed(f"解码步数超过预留的 {self.max_rows} 行")
             if int(ids[0, -1]) == self.close_id:
                 self.stage = 1
+            if self.step > 0 and self.step % self.check_every == 0:
+                self._check_violations()
         else:
             if self.prefill_calls > 0:
                 raise CheckFailed("出现第二次 prefill")
             self.decode = False
-        self._row = None
-
-    def _flush_row(self):
-        if self._row is not None:
-            self.pos_mass.append(self._row)
-            self.pos_stage.append(self._row_slot)
-            self._row = None
 
     # ---------------------------------------------------------------- 工具
     def _dev(self, device):
@@ -107,6 +111,7 @@ class FPController:
             t = self.torch
             li = LAYER_INDEX[layer]
             hs = np.flatnonzero(self.ref["heads"][li])
+
             def g(name, dt):
                 return t.as_tensor(np.ascontiguousarray(self.ref[name][stage, li, hs]), dtype=dt, device=device)
             self.cache[key] = (t.as_tensor(hs, dtype=t.long, device=device),
@@ -128,20 +133,35 @@ class FPController:
             sc = sc.masked_fill(~m, float("-inf")) if m.dtype == t.bool else sc + m.float()
         return t.softmax(sc, dim=-1)[0, :, 0]
 
+    def _row_index(self) -> int:
+        return 0 if not self.decode else self.step + 1
+
     def _accumulate(self, layer: int, slot: int, before_img, after_img):
         t = self.torch
         if layer not in self.sums:
             H = before_img.shape[0]
             self.sums[layer] = t.zeros(3, H, self.n_img, dtype=t.float64, device=before_img.device)
             self.sums_after[layer] = t.zeros_like(self.sums[layer])
+            self.pos_buf[layer] = t.zeros(self.max_rows, H, dtype=t.float32, device=before_img.device)
         self.sums[layer][slot] += before_img.double()
         self.sums_after[layer][slot] += after_img.double()
+        self.pos_buf[layer][self._row_index()] = before_img.sum(-1)
         if layer == LAYERS[0]:
             self.counts[slot] += 1
-        if self._row is None:
-            self._row = np.full((len(LAYERS), before_img.shape[0]), np.nan, dtype=np.float32)
-            self._row_slot = slot
-        self._row[LAYER_INDEX[layer]] = before_img.sum(-1).float().cpu().numpy()
+            self.pos_stage.append(slot)
+
+    def _violation(self, device):
+        if str(device) not in self.viol:
+            self.viol[str(device)] = self.torch.zeros(3, dtype=self.torch.float32, device=device)
+        return self.viol[str(device)]
+
+    def _check_violations(self):
+        for dev, v in self.viol.items():
+            cons, neg, region = [float(x) for x in v.cpu()]
+            if cons >= self.tol_mass or neg > 1e-7:
+                raise CheckFailed(f"守恒检查失败（{dev}）：最大误差 {cons}，最小概率 {-neg}，截至解码步 {self.step}")
+            if region > 0:
+                raise CheckFailed(f"关键区域份额没有随抬高而上升（{dev}）：{int(region)} 次，截至解码步 {self.step}")
 
     # ---------------------------------------------------------------- 注意力函数
     def attention(self, orig, module, query, key, value, attention_mask, *args, **kwargs):
@@ -170,30 +190,34 @@ class FPController:
             hs, E, r, R, RW = self._ref_tensors(layer, self.stage, query.device)
             sub = p_img.index_select(0, hs)
             new_e, info_e = restore(self.xp, sub, E, r, self.lam, self.floor)
+            v = self._violation(query.device)
             if self.mode == "restore_E":
                 new_sub, info = new_e, info_e
-                if bool(((info["delta"] > 1e-6) & (info["region_after"] <= info["region_before"])).any()):
-                    raise CheckFailed(f"关键区域份额没有随抬高而上升：layer={layer} step={self.step}")
+                v[2] += ((info["delta"] > 1e-6) & (info["region_after"] <= info["region_before"])).sum()
             else:
                 new_sub, info = matched(self.xp, sub, R, RW, info_e["delta"], self.floor)
             p_new = p.clone()
             p_new[hs[:, None], img[None, :]] = new_sub
-            cons = conservation(self.xp, p, p_new, img, hs)
-            if max(cons["image"], cons["text"], cons["row"]) >= self.tol_mass or cons["min_prob"] < -1e-7:
-                raise CheckFailed(f"守恒检查失败：layer={layer} step={self.step} {cons}")
+            a, b = p.index_select(0, hs), p_new.index_select(0, hs)
+            ia, ib = a.index_select(1, img).sum(-1), b.index_select(1, img).sum(-1)
+            ra, rb = a.sum(-1), b.sum(-1)
+            c_img, c_txt, c_row = (ib - ia).abs(), ((rb - ib) - (ra - ia)).abs(), (rb - ra).abs()
+            v[0] = t.maximum(v[0], t.stack([c_img.max(), c_txt.max(), c_row.max()]).max())
+            v[1] = t.maximum(v[1], -b.min())
             n = hs.numel()
-            col = lambda x: x.reshape(-1).float().cpu()
-            rows = t.stack([t.full((n,), float(self.step)), t.full((n,), float(layer)), hs.float().cpu(),
-                            t.full((n,), float(self.stage)), col(info["region_before"]), col(info["region_after"]),
-                            col(info["P"]), col(info["delta"]), col(info["requested"]), col(info["clamped"]),
-                            t.full((n,), cons["image"]), t.full((n,), cons["text"]), t.full((n,), cons["row"])], -1)
-            self.trace.append(rows.numpy())
+            if layer not in self.trace_buf:
+                self.trace_buf[layer] = t.zeros(self.max_rows, n, len(TRACE_COLS), dtype=t.float32, device=query.device)
+            f = lambda x: t.full((n,), float(x), dtype=t.float32, device=query.device)
+            self.trace_buf[layer][self.step] = t.stack(
+                [f(self.step), f(layer), hs.float(), f(self.stage), info["region_before"].float(),
+                 info["region_after"].float(), info["P"].float(), info["delta"].float(), info["requested"].float(),
+                 info["clamped"].float(), c_img.float(), c_txt.float(), c_row.float()], -1)
         self._accumulate(layer, slot, p_img, p_new.index_select(1, img))
         rep = p.shape[0] // value.shape[1]
-        v = value.repeat_interleave(rep, dim=1) if rep > 1 else value
-        result = t.matmul(p_new[None, :, None, :], v.float()).to(query.dtype).transpose(1, 2).contiguous()
+        v_ = value.repeat_interleave(rep, dim=1) if rep > 1 else value
+        result = t.matmul(p_new[None, :, None, :], v_.float()).to(query.dtype).transpose(1, 2).contiguous()
         if self.step < self.selfcheck_steps:
-            plain = result if p_new is p else t.matmul(p[None, :, None, :], v.float()).to(query.dtype).transpose(1, 2)
+            plain = result if p_new is p else t.matmul(p[None, :, None, :], v_.float()).to(query.dtype).transpose(1, 2)
             ref = orig(module, query, key, value, attention_mask, *args, **kwargs)[0].float()
             d = (plain.float() - ref).abs()
             allowed = t.clamp(ref.abs() * 2.0 ** -6, min=self.tol_selfcheck)
@@ -208,16 +232,14 @@ class FPController:
 
     # ---------------------------------------------------------------- 结果
     def result(self) -> Dict[str, np.ndarray]:
-        self._flush_row()
-        L, H, n = len(LAYERS), None, self.n_img
+        self._check_violations()
+        L, n = len(LAYERS), self.n_img
+        rows = len(self.pos_stage)
+        H = next(iter(self.sums.values())).shape[1] if self.sums else 0
         out: Dict[str, np.ndarray] = {}
         for tag, src in (("", self.sums), ("_after", self.sums_after)):
             for slot, name in enumerate(STAGE_NAMES):
                 c = self.counts[slot]
-                if not src:
-                    out[name + tag] = np.zeros((L, 0, n), np.float32)
-                    continue
-                H = next(iter(src.values())).shape[1]
                 arr = np.zeros((L, H, n), np.float32)
                 if c > 0:
                     for layer, s in src.items():
@@ -225,19 +247,28 @@ class FPController:
                 out[name + tag] = arr
         for slot, name in enumerate(STAGE_NAMES):
             out["count_" + name] = np.array(self.counts[slot])
-        out["pos_image_mass"] = (np.stack(self.pos_mass) if self.pos_mass else np.zeros((0, L, H or 0))).astype(np.float16)
+        pm = np.full((rows, L, H), np.nan, np.float32)
+        for layer, buf in self.pos_buf.items():
+            pm[:, LAYER_INDEX[layer]] = buf[:rows].cpu().numpy()
+        out["pos_image_mass"] = pm.astype(np.float16)
         out["pos_stage"] = np.array(self.pos_stage, dtype=np.int8)
         out["layer_ids"] = np.array(LAYERS)
         out["n_img"] = np.array(n)
         out["selfcheck_max_abs_diff"] = np.array([c["max_abs_diff"] for c in self.selfchecks], np.float32)
-        cols = ["step", "layer", "head", "stage", "region_before", "region_after", "image_mass", "delta",
-                "requested", "clamped", "cons_image", "cons_text", "cons_row"]
-        out["trace"] = np.concatenate(self.trace).astype(np.float32) if self.trace else np.zeros((0, len(cols)), np.float32)
-        out["trace_columns"] = np.array(cols)
+        steps = self.step + 1
+        if self.trace_buf and steps > 0:
+            parts = [self.trace_buf[l][:steps].reshape(-1, len(TRACE_COLS)).cpu().numpy() for l in sorted(self.trace_buf)]
+            tr = np.concatenate(parts)
+            tr = tr[np.lexsort((tr[:, 2], tr[:, 1], tr[:, 0]))]
+        else:
+            tr = np.zeros((0, len(TRACE_COLS)), np.float32)
+        self._trace_np = tr
+        out["trace"] = tr
+        out["trace_columns"] = np.array(TRACE_COLS)
         return out
 
     def summary(self) -> Dict[str, object]:
-        tr = np.concatenate(self.trace) if self.trace else np.zeros((0, 13), np.float32)
+        tr = self._trace_np if self._trace_np is not None else np.zeros((0, len(TRACE_COLS)), np.float32)
         s = {"mode": self.mode, "decode_steps": self.step + 1, "prefill_calls": self.prefill_calls,
              "decode_calls": self.decode_calls, "stage_counts": {n: int(c) for n, c in zip(STAGE_NAMES, self.counts)},
              "selfcheck_max": float(max([c["max_abs_diff"] for c in self.selfchecks] or [0.0])),

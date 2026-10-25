@@ -19,9 +19,14 @@
 
 ## 总要求
 
-1. 用户 2026-10-26 确认：GPU 0、1、4、5 上的旧 PathVQA 五压力实验（PID 2759852、2759936，目录 `/mnt/sdg/linxin/pathvqa-five-pressure-20261025`）**已经没用，可以停掉**；空闲的卡都可以用；**GPU7 不确定能不能用**，启动前先做一次小的 CUDA 测试（在 GPU7 上分配约 1GB 显存、做一次矩阵乘、释放），失败就不用它。停之前先确认这两个 PID 的命令行和工作目录确实是那个旧实验，用 SIGTERM 正常结束；**不要删除**旧实验的任何文件。除这两个进程外，不停止、不抢占、不修改任何别人的进程；不建常驻占卡进程。每个模型实例用两张卡，参数全部放在 GPU 上，不做 CPU offload。GPU7 可用时开 4 个 worker：(0,1)、(2,3)、(4,5)、(6,7)；GPU7 不可用时开 3 个 worker：(0,1)、(2,3)、(4,5)，GPU6 单卡放不下模型，空着。下面的命令按 4 个写；只有 3 个时去掉 6,7 那一行，并把 `--shard k/4` 全部改成 `k/3`（k = 0、1、2）。
+1. **GPU 和 worker（2026-10-26 更新）**：上一次 4 个 worker 满负载时 GPU5 掉卡（`nvidia-smi` 显示 rev ff，`cuInit` 返回 999），需要管理员重启机器才能恢复。用户决定：**只开 3 个 worker：(0,1)、(2,3)、(6,7)，GPU 4、5 不用**（即使重启后 GPU5 恢复也不用）。
+   - 启动前先确认三对卡都能用：在每张卡上分配约 1GB 显存、做一次矩阵乘、释放；任何一张失败就停下汇报，不换卡。
+   - 机器重启后建议管理员查一下 `dmesg | grep -i xid` 并把结果附在汇报里；如果管理员同意，可以设功率上限 `sudo nvidia-smi -pm 1 && sudo nvidia-smi -pl 220`（重启后失效）。没有 sudo 权限就跳过，不影响实验。
+   - **错开启动**：先启动第一个 worker，等它加载完模型、开始生成（日志里出现第一次生成，约 3～5 分钟）后再启动下一个，不要三个同时加载。
+   - 不停止、不抢占、不修改任何别人的进程；不建常驻占卡进程。每个模型实例用两张卡，参数全部放在 GPU 上，不做 CPU offload。旧实验目录（`/mnt/sdg/linxin/pathvqa-five-pressure-20261025` 和上一次重做时建的目录）的文件都**不要删除**。
+   - **代码更新（提交见 `git log`）**：控制器不再在每个解码步把数据拷回 CPU，记录先留在 GPU 上、生成结束时一次拷出，守恒检查每 64 步同步一次、结束时再检查一次。计算本身没变，只是少了 GPU 等 CPU 的时间。上一次已经保存的 PV-000 的 6 份记录是旧代码生成的，为了全部结果出自同一份代码，**换一个新的 `ROOT` 从头跑**（旧目录保留不动，不要往里面续跑）。
 2. 用 `configs/qwen38_fp.yaml`，复制一份，只改 `model_path`（以及按需要改 `device_map`）。其余设置不改。
-3. 新开一个实验目录 `ROOT`（例如 `/mnt/.../pathvqa-fp-20261026`），不覆盖任何旧结果。
+3. 新开一个实验目录 `ROOT`（例如 `/mnt/.../pathvqa-fp-20261026b`，和上一次重做的目录不同名），不覆盖任何旧结果。
 4. 出错时代码会在 `ROOT/failures/` 留下现场并退出；之后的命令看到这个目录不为空就会拒绝运行。**不要自动重试**，诊断后汇报。
 5. NPZ 数组留在服务器；GitHub 上只放 `fp-public` 整理出的内容。
 
@@ -53,16 +58,19 @@ CUDA_VISIBLE_DEVICES=<两张空闲卡> python run.py fp-observe --config $C --ro
 - `budget` 里有没有预算被打满；
 - 回复通顺。
 
-**检查通过后，多个 worker 并行跑完：**
+这一题请同时记一下每次生成的 `seconds` 和 `n_out`，算出每秒 token 数，汇报时和上一次（约 7.5 token/s）比较。
+
+**检查通过后，3 个 worker 错开启动、并行跑完**（每启动一个，等它开始生成后再启动下一个）：
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python run.py fp-observe --config $C --root $R --shard 0/4 &
-CUDA_VISIBLE_DEVICES=2,3 python run.py fp-observe --config $C --root $R --shard 1/4 &
-CUDA_VISIBLE_DEVICES=4,5 python run.py fp-observe --config $C --root $R --shard 2/4 &
-CUDA_VISIBLE_DEVICES=6,7 python run.py fp-observe --config $C --root $R --shard 3/4 &
+CUDA_VISIBLE_DEVICES=0,1 nohup python run.py fp-observe --config $C --root $R --shard 0/3 > $R/obs_w0.log 2>&1 &
+# 等 w0 开始生成（约 3～5 分钟）
+CUDA_VISIBLE_DEVICES=2,3 nohup python run.py fp-observe --config $C --root $R --shard 1/3 > $R/obs_w1.log 2>&1 &
+# 等 w1 开始生成
+CUDA_VISIBLE_DEVICES=6,7 nohup python run.py fp-observe --config $C --root $R --shard 2/3 > $R/obs_w2.log 2>&1 &
 ```
 
-每个 worker 的 `--shard k/n` 要不同、`n` 要相同。中断后用同样的命令重跑，会跳过已经完成的。之后有更多空卡时：先让现有 worker 在一次生成保存后停下，再用新的 n 重新分片启动全部 worker（已完成的会自动跳过，不会重复）。
+每个 worker 的 `--shard k/3` 要不同。中断后用同样的命令重跑，会跳过已经完成的。如果某张卡再次掉卡或报 CUDA 错误：停下汇报，不要换卡继续，也不要改分片数。
 
 ## 第 2 步：判读观察结果
 
@@ -108,11 +116,12 @@ CUDA_VISIBLE_DEVICES=<两张空闲卡> python run.py fp-intervene --config $C --
 
 ## 第 4 步：干预全部候选
 
+同样错开启动：
+
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python run.py fp-intervene --config $C --root $R --phase full --shard 0/4 &
-CUDA_VISIBLE_DEVICES=2,3 python run.py fp-intervene --config $C --root $R --phase full --shard 1/4 &
-CUDA_VISIBLE_DEVICES=4,5 python run.py fp-intervene --config $C --root $R --phase full --shard 2/4 &
-CUDA_VISIBLE_DEVICES=6,7 python run.py fp-intervene --config $C --root $R --phase full --shard 3/4 &
+CUDA_VISIBLE_DEVICES=0,1 nohup python run.py fp-intervene --config $C --root $R --phase full --shard 0/3 > $R/int_w0.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2,3 nohup python run.py fp-intervene --config $C --root $R --phase full --shard 1/3 > $R/int_w1.log 2>&1 &
+CUDA_VISIBLE_DEVICES=6,7 nohup python run.py fp-intervene --config $C --root $R --phase full --shard 2/3 > $R/int_w2.log 2>&1 &
 ```
 
 如果预检的 `deterministic` 为 false，代码会自动给全部候选加跑 `base`，并在日志里说明。
@@ -151,4 +160,4 @@ python run.py fp-public --root $R --out <仓库>/results/pathvqa_fp_<日期>/
 
 ## 耗时估计
 
-上一轮平均每次生成在一个 worker 上约 4 分钟。观察 600 次，4 个 worker 约 10 小时、3 个约 13 小时；干预约 2 × 候选数次，候选按以前的比例约 250～300 次，4 个 worker 约 10～12 小时、3 个约 13～16 小时。实际以空闲卡为准。
+上一轮平均每次生成在一个 worker 上约 4 分钟（约 7.5 token/s）。按 3 个 worker、不算这次提速：观察 600 次约 13 小时；干预约 2 × 候选数次，候选按以前的比例约 250～300 次，约 13～16 小时。去掉每步拷回 CPU 后预计会快一些，以第 1 步单题测出的速度为准。

@@ -90,7 +90,8 @@ def generate_one(backend, cfg, image_path: str, user_text: str, mode: str, ref: 
     eos = gc.eos_token_id if isinstance(gc.eos_token_id, list) else [gc.eos_token_id]
     tb, ab = cfg.think_budget, cfg.answer_budget
     budget = make_budget(tf, torch, n_in, backend.close_id, int(eos[0]), tb, ab)
-    ctrl = FPController(torch, mode, img_idx, backend.close_id, ref=ref, lam=0.0 if mode in ("observe", "base") else 1.0)
+    ctrl = FPController(torch, mode, img_idx, backend.close_id, ref=ref, lam=0.0 if mode in ("observe", "base") else 1.0,
+                        max_rows=tb + ab + 2)
     hook = model.register_forward_pre_hook(ctrl.pre_hook, with_kwargs=True)
     inner = getattr(model, "model", None)
     if inner is not None and hasattr(inner, "rope_deltas"):
