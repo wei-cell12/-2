@@ -82,6 +82,13 @@ def test_analyze_end_to_end(tmp_path):
                   labels=labels, heatmap_ids=["X-00"], reps=200)
     assert "plain_wrong vs plain_neutral" in rep and "AUC" in rep
     assert os.path.exists(out / "heatmaps" / "X-00__plain_wrong.png")
+    assert os.path.exists(out / "heatmaps" / "X-00__plain_wrong__answer.png")
+    assert os.path.exists(out / "heatmaps" / "X-00__plain_wrong__prefill_end.png")
+    out2 = tmp_path / "out2"
+    rep2 = analyze(f"plain_neutral={ref_dir}@neutral", [f"plain_wrong={cmp_dir}@user_wrong"], str(out2),
+                   labels=labels, heatmap_ids=["X-00", "X-01"], reps=50, shared_scale=True)
+    assert "统一色阶" in rep2 and "差值色阶" in rep2
+    assert os.path.exists(out2 / "heatmaps" / "X-01__plain_wrong__answer.png")
     import json
     s = json.load(open(out / "summary.json", encoding="utf-8"))
     a = s["comparisons"]["plain_wrong"]["auc|think|全部"]

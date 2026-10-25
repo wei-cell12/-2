@@ -95,7 +95,8 @@ def main():
     aa.add_argument("--runs", nargs="*", default=None, help="plain 中性和受压的运行目录，用来标出哪些题改口")
     aa.add_argument("--crit", default="answer", choices=["answer", "full"])
     aa.add_argument("--label-method", default="plain", help="用哪个方法的结果标“改口”（plain 或 lqcd 等）")
-    aa.add_argument("--heatmaps", nargs="*", default=None, help="画热图的题号")
+    aa.add_argument("--heatmaps", nargs="*", default=None, help="画热图的题号（prefill 末尾、思考、回答三个阶段各一张）")
+    aa.add_argument("--heatmap-shared-scale", action="store_true", help="同一阶段所有热图用统一色阶，便于题间比较")
     aa.add_argument("--bootstrap", type=int, default=2000)
 
     a = ap.parse_args()
@@ -133,7 +134,7 @@ def main():
     elif a.cmd == "attn-analyze":
         from symexp.attn_analysis import analyze, flip_labels_from_runs
         labels = flip_labels_from_runs(a.runs, a.crit, a.label_method) if a.runs else None
-        print(analyze(a.ref, a.cmp, a.out, labels, a.heatmaps, a.bootstrap))
+        print(analyze(a.ref, a.cmp, a.out, labels, a.heatmaps, a.bootstrap, shared_scale=a.heatmap_shared_scale))
     elif a.cmd == "eval":
         print(evaluate(a.runs, a.out, reps=a.bootstrap))
 

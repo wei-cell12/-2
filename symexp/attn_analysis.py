@@ -241,7 +241,8 @@ SHIFT = {"dlogL": 1, "dE": -1, "dU": 1, "retention": -1, "js": 1}   # 乘上符�
 
 
 def analyze(ref_spec: str, cmp_specs: List[str], out_dir: str, labels: Optional[Dict[str, bool]] = None,
-            heatmap_ids: Optional[List[str]] = None, reps: int = 2000) -> str:
+            heatmap_ids: Optional[List[str]] = None, reps: int = 2000,
+            shared_scale: bool = False) -> str:
     os.makedirs(out_dir, exist_ok=True)
     rname, rdir, rtag = parse_source(ref_spec)
     ref_files = load_source(rdir, rtag)
@@ -326,13 +327,32 @@ def analyze(ref_spec: str, cmp_specs: List[str], out_dir: str, labels: Optional[
                                  " | ".join(f"{res[k]:.3f}" for k in SHIFT) + " |")
             lines.append("")
         if heatmap_ids:
-            for i in heatmap_ids:
-                if i in ref_files and i in cmp_files:
+            ids = [i for i in heatmap_ids if i in ref_files and i in cmp_files]
+            lines.append("热图：每题每阶段一张（思考阶段文件名不带阶段后缀）；看图头。"
+                         + ("同一阶段所有题用统一色阶。" if shared_scale else "每题按自己的最大值缩放，题间不可比颜色深浅。"))
+            for st in STAGES:
+                vmax = dmax = None
+                if shared_scale and ids:
+                    vs, ds = [], []
+                    for i in ids:
+                        try:
+                            _, _, r, c = _stage_maps(ref_files[i], cmp_files[i], heads_img, st)
+                            vs.append(max(r.max(), c.max())); ds.append(np.abs(c - r).max())
+                        except Exception:
+                            pass
+                    vmax = max(vs) if vs else None
+                    dmax = max(ds) if ds else None
+                    if vmax:
+                        lines.append(f"- {st}：注意力色阶 0～{vmax * 100:.2f}%，差值色阶 ±{(dmax or 0) * 100:.2f} 个百分点")
+                for i in ids:
+                    suffix = "" if st == "think" else f"__{st}"
                     try:
-                        heatmap(ref_files[i], cmp_files[i], os.path.join(out_dir, "heatmaps", f"{i}__{cname}.png"),
-                                heads_img)
+                        heatmap(ref_files[i], cmp_files[i],
+                                os.path.join(out_dir, "heatmaps", f"{i}__{cname}{suffix}.png"),
+                                heads_img, stage=st, vmax=vmax, dmax=dmax)
                     except Exception as e:  # 热图只是辅助
-                        lines.append(f"（{i} 热图失败：{type(e).__name__}: {e}）")
+                        lines.append(f"（{i} {st} 热图失败：{type(e).__name__}: {e}）")
+            lines.append("")
     if rows_csv:
         keys = list(rows_csv[0].keys())
         with open(os.path.join(out_dir, "items.csv"), "w", encoding="utf-8", newline="") as f:
@@ -356,26 +376,32 @@ def _colormap(v: np.ndarray) -> np.ndarray:
     return (np.stack([r, g, b], -1) * 255).astype(np.uint8)
 
 
-def heatmap(ref_path: str, cmp_path: str, out_png: str, heads: Optional[np.ndarray] = None, stage: str = "think"):
-    """四联图：原图 | 中性 | 比较组 | 差值（红 = 增加，蓝 = 减少）。"""
-    from PIL import Image
+def _stage_maps(ref_path: str, cmp_path: str, heads: Optional[np.ndarray], stage: str):
     dr, dc = _load(ref_path), _load(cmp_path)
     gh, gw = [int(x) for x in dr["grid_hw"]]
+    rm, _ = layer_maps(dr[stage], heads)
+    cm, _ = layer_maps(dc[stage], heads)
+    return dr, dc, np.nanmean(rm, 0).reshape(gh, gw), np.nanmean(cm, 0).reshape(gh, gw)
+
+
+def heatmap(ref_path: str, cmp_path: str, out_png: str, heads: Optional[np.ndarray] = None, stage: str = "think",
+            vmax: Optional[float] = None, dmax: Optional[float] = None):
+    """四联图：原图 | 中性 | 比较组 | 差值（红 = 增加，蓝 = 减少）。
+    vmax / dmax 为 None 时按本题自己的最大值缩放；给定时用统一色阶（便于题间比较）。"""
+    from PIL import Image
+    dr, dc, r, c = _stage_maps(ref_path, cmp_path, heads, stage)
+    gh, gw = r.shape
     img_path = str(dr.get("image", dc.get("image", "")))
     base = Image.open(img_path).convert("RGB") if img_path and os.path.exists(img_path) \
         else Image.new("RGB", (gw * 28, gh * 28), (128, 128, 128))
     W, Hh = base.size
-    rm, _ = layer_maps(dr[stage], heads)
-    cm, _ = layer_maps(dc[stage], heads)
-    r = np.nanmean(rm, 0).reshape(gh, gw)
-    c = np.nanmean(cm, 0).reshape(gh, gw)
-    vmax = max(r.max(), c.max())
+    vm = vmax or max(r.max(), c.max())
     panels = [base]
     for m in (r, c):
-        rgb = Image.fromarray(_colormap(m / vmax)).resize((W, Hh), Image.NEAREST)
+        rgb = Image.fromarray(_colormap(np.clip(m / vm, 0, 1))).resize((W, Hh), Image.NEAREST)
         panels.append(Image.blend(base, rgb, 0.5))
     d = c - r
-    a = np.abs(d).max() or 1.0
+    a = dmax or (np.abs(d).max() or 1.0)
     rgb = np.zeros(d.shape + (3,), dtype=np.uint8)
     rgb[..., 0] = (np.clip(d / a, 0, 1) * 255).astype(np.uint8)
     rgb[..., 2] = (np.clip(-d / a, 0, 1) * 255).astype(np.uint8)
