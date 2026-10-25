@@ -1,0 +1,21 @@
+{
+  "pid": 2416175,
+  "gpu": 1,
+  "max_memory": {
+    "gpu1": "6GiB",
+    "cpu": "128GiB"
+  },
+  "torch": "2.9.1+cu128",
+  "transformers": "5.15.1",
+  "dtype": "torch.bfloat16",
+  "device_map": {
+    "model.visual": "0",
+    "model.language_model.embed_tokens": "0",
+    "model.language_model.norm": "cpu",
+    "model.language_model.rotary_emb": "cpu",
+    "lm_head": "cpu",
+    "model.language_model.layers": "cpu"
+  },
+  "no_new_generation": true,
+  "original_generator_untouched": true
+}
