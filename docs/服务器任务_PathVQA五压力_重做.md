@@ -19,7 +19,7 @@
 
 ## 总要求
 
-1. 只用空闲 GPU（用户 2026-10-26 确认：空闲的卡都可以用，包括 GPU7）。GPU 0、1、4、5 上是正在进行的旧实验（PID 2759852、2759936），**不要动**；不停止、不抢占、不修改任何别人的进程；不建常驻占卡进程。每个模型实例用两张卡，参数全部放在 GPU 上，不做 CPU offload。当前空闲的是 2、3、6、7，可以开两个 worker：(2,3) 和 (6,7)；以后有更多空卡可以再加 worker（`--shard` 的 n 要从头统一，见第 1 步）。
+1. 用户 2026-10-26 确认：GPU 0、1、4、5 上的旧 PathVQA 五压力实验（PID 2759852、2759936，目录 `/mnt/sdg/linxin/pathvqa-five-pressure-20261025`）**已经没用，可以停掉**；空闲的卡（包括 GPU7）都可以用。停之前先确认这两个 PID 的命令行和工作目录确实是那个旧实验，用 SIGTERM 正常结束；**不要删除**旧实验的任何文件。除这两个进程外，不停止、不抢占、不修改任何别人的进程；不建常驻占卡进程。每个模型实例用两张卡，参数全部放在 GPU 上，不做 CPU offload。8 张卡可以开 4 个 worker：(0,1)、(2,3)、(4,5)、(6,7)。
 2. 用 `configs/qwen38_fp.yaml`，复制一份，只改 `model_path`（以及按需要改 `device_map`）。其余设置不改。
 3. 新开一个实验目录 `ROOT`（例如 `/mnt/.../pathvqa-fp-20261026`），不覆盖任何旧结果。
 4. 出错时代码会在 `ROOT/failures/` 留下现场并退出；之后的命令看到这个目录不为空就会拒绝运行。**不要自动重试**，诊断后汇报。
@@ -56,8 +56,10 @@ CUDA_VISIBLE_DEVICES=<两张空闲卡> python run.py fp-observe --config $C --ro
 **检查通过后，多个 worker 并行跑完：**
 
 ```bash
-CUDA_VISIBLE_DEVICES=2,3 python run.py fp-observe --config $C --root $R --shard 0/2 &
-CUDA_VISIBLE_DEVICES=6,7 python run.py fp-observe --config $C --root $R --shard 1/2 &
+CUDA_VISIBLE_DEVICES=0,1 python run.py fp-observe --config $C --root $R --shard 0/4 &
+CUDA_VISIBLE_DEVICES=2,3 python run.py fp-observe --config $C --root $R --shard 1/4 &
+CUDA_VISIBLE_DEVICES=4,5 python run.py fp-observe --config $C --root $R --shard 2/4 &
+CUDA_VISIBLE_DEVICES=6,7 python run.py fp-observe --config $C --root $R --shard 3/4 &
 ```
 
 每个 worker 的 `--shard k/n` 要不同、`n` 要相同。中断后用同样的命令重跑，会跳过已经完成的。之后有更多空卡时：先让现有 worker 在一次生成保存后停下，再用新的 n 重新分片启动全部 worker（已完成的会自动跳过，不会重复）。
@@ -107,8 +109,10 @@ CUDA_VISIBLE_DEVICES=<两张空闲卡> python run.py fp-intervene --config $C --
 ## 第 4 步：干预全部候选
 
 ```bash
-CUDA_VISIBLE_DEVICES=<卡对1> python run.py fp-intervene --config $C --root $R --phase full --shard 0/3 &
-...
+CUDA_VISIBLE_DEVICES=0,1 python run.py fp-intervene --config $C --root $R --phase full --shard 0/4 &
+CUDA_VISIBLE_DEVICES=2,3 python run.py fp-intervene --config $C --root $R --phase full --shard 1/4 &
+CUDA_VISIBLE_DEVICES=4,5 python run.py fp-intervene --config $C --root $R --phase full --shard 2/4 &
+CUDA_VISIBLE_DEVICES=6,7 python run.py fp-intervene --config $C --root $R --phase full --shard 3/4 &
 ```
 
 如果预检的 `deterministic` 为 false，代码会自动给全部候选加跑 `base`，并在日志里说明。
@@ -147,4 +151,4 @@ python run.py fp-public --root $R --out <仓库>/results/pathvqa_fp_<日期>/
 
 ## 耗时估计
 
-上一轮平均每次生成在一个 worker 上约 4 分钟。观察 600 次，用 3 个 worker 约 13 小时；干预约 2 × 候选数次，候选按以前的比例约 250～300 次，用 3 个 worker 约 13～16 小时。实际以空闲卡为准。
+上一轮平均每次生成在一个 worker 上约 4 分钟。观察 600 次，用 4 个 worker 约 10 小时；干预约 2 × 候选数次，候选按以前的比例约 250～300 次，用 4 个 worker 约 10～12 小时。实际以空闲卡为准。
