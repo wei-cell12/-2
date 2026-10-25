@@ -36,7 +36,7 @@ def generate_one(item: dict, condition: str, mode: str, ref: Optional[Dict] = No
     arrays.update(layer_ids=np.array(LAYERS), n_img=np.array(N_IMG), grid_hw=np.array(GRID, np.int32),
                   image=np.array(item["image"]), selfcheck_max_abs_diff=np.zeros(48, np.float32),
                   trace=np.zeros((0, 13), np.float32), trace_columns=np.array(["step"] * 13))
-    summ = {"mode": mode, "decode_steps": T - 1, "selfcheck_max": 0.0}
+    summ = {"mode": mode, "decode_steps": T - 1, "selfcheck_max": 0.0, "selfcheck_ratio_max": 0.0}
     if mode in ("restore_E", "rand_matched"):
         summ.update(mean_delta=0.2 if mode == "restore_E" else 0.2, region_before=0.66 if mode == "restore_E" else 0.08,
                     region_after=0.9 if mode == "restore_E" else 0.3, dose_gap_max=0.0, clamped_rows=0, cons_max=0.0,

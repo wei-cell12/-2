@@ -48,7 +48,7 @@ CUDA_VISIBLE_DEVICES=<两张空闲卡> python run.py fp-observe --config $C --ro
 
 检查 `R/obs/records/*.json`：
 
-- `controller.selfcheck_max` < 0.05（不满足时代码会直接报错）；
+- `controller.selfcheck_ratio_max` ≤ 1（不满足时代码会直接报错）。自检逐元素比较，允许差 = max(0.05, 2⁻⁶·|原输出|)，即 0.05 和 bf16 的 2 个最小精度单位取大者；`selfcheck_max` 是绝对差，量级大的元素可能到 0.0625，这是正常舍入；
 - `controller.stage_counts`：prefill_end 为 1，think 和 answer 都大于 0（被预算截断的除外）；
 - `budget` 里有没有预算被打满；
 - 回复通顺。
@@ -93,7 +93,7 @@ CUDA_VISIBLE_DEVICES=<两张空闲卡> python run.py fp-intervene --config $C --
 
 预检取前 2 个候选，跑 `restore_E`、`rand_matched`、`base` 三组，共 6 次，然后写 `R/pilot_gate.json`。其中检查：
 
-- 显式注意力自检差 < 0.05；
+- 显式注意力自检在允许差以内（`selfcheck_ratio_max` ≤ 1）；
 - 守恒误差 < 1e-3；
 - `restore_E` 关键区域份额上升；
 - `rand_matched` 剂量差 < 1e-3（被截断的除外）；

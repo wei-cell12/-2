@@ -161,7 +161,7 @@ def observe(cfg, root: str, shard: str = "", limit: int = 0, conditions: Optiona
             _fail(root, task, e)
             raise
         print(f"  {k + 1}/{len(todo)} {task} tokens={rec['n_out']} {rec['seconds']}s "
-              f"selfcheck={rec['controller'].get('selfcheck_max')}", file=sys.stderr)
+              f"selfcheck_max={rec['controller'].get('selfcheck_max')} ratio={rec['controller'].get('selfcheck_ratio_max')}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -345,7 +345,7 @@ def pilot_gate(root: str, cases: List[dict], arms: List[str]) -> Optional[dict]:
                 return None                                # 其他 worker 还没做完
             r = json.load(open(p, encoding="utf-8"))
             cs = r["controller"]
-            checks = {"selfcheck_lt_0.05": cs.get("selfcheck_max", 0.0) < 0.05}
+            checks = {"selfcheck_within_tolerance": cs.get("selfcheck_ratio_max", 0.0) <= 1.0}
             if a == "restore_E":
                 checks["region_rises"] = cs.get("region_after", 0) > cs.get("region_before", 1)
                 checks["conservation_lt_1e-3"] = cs.get("cons_max", 0.0) < 1e-3

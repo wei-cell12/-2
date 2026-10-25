@@ -15,7 +15,10 @@ softmax(QK^T/√d)（fp32）再乘 V，用这个结果作为该层输出；prefi
 之前是思考阶段（与 symexp/attn.py 的定义一致）。
 
 自动检查（不通过就抛异常，由调用方停下汇报）：
-  - 前 selfcheck_steps 个解码步，16 层显式计算（未修改）与原注意力函数输出的最大差 < tol_selfcheck
+  - 前 selfcheck_steps 个解码步，16 层显式计算（未修改）与原注意力函数输出逐元素比较：
+    允许差 = max(tol_selfcheck, 2⁻⁶·|原输出|)，即 0.05 和 bf16 的 2 个最小精度单位取大者。
+    两条路径都输出 bf16，量级为 x 的元素差 1 个最小精度单位就是 2⁻⁷·|x|（例如 |x|≈10 时为 0.0625），
+    这属于正常舍入；实现写错（缩放、掩码、GQA 头顺序）时差会远大于这个量级
   - 每一行修改后：选中头的图像总量、文字总量、整行总和变化 < tol_mass，且没有负概率
   - restore_E：有抬高量时关键区域份额必须上升
 """
@@ -191,11 +194,16 @@ class FPController:
         result = t.matmul(p_new[None, :, None, :], v.float()).to(query.dtype).transpose(1, 2).contiguous()
         if self.step < self.selfcheck_steps:
             plain = result if p_new is p else t.matmul(p[None, :, None, :], v.float()).to(query.dtype).transpose(1, 2)
-            ref = orig(module, query, key, value, attention_mask, *args, **kwargs)[0]
-            diff = float((plain.float() - ref.float()).abs().max())
-            self.selfchecks.append({"step": self.step, "layer": layer, "max_abs_diff": diff})
-            if not diff < self.tol_selfcheck:
-                raise CheckFailed(f"显式注意力与原函数不一致：step={self.step} layer={layer} diff={diff}")
+            ref = orig(module, query, key, value, attention_mask, *args, **kwargs)[0].float()
+            d = (plain.float() - ref).abs()
+            allowed = t.clamp(ref.abs() * 2.0 ** -6, min=self.tol_selfcheck)
+            ratio = float((d / allowed).max())
+            diff = float(d.max())
+            self.selfchecks.append({"step": self.step, "layer": layer, "max_abs_diff": diff, "max_ratio": ratio,
+                                    "ref_absmax": float(ref.abs().max())})
+            if not ratio <= 1.0:
+                raise CheckFailed(f"显式注意力与原函数不一致：step={self.step} layer={layer} "
+                                  f"diff={diff} 允许差之比={ratio:.3f}")
         return result, None
 
     # ---------------------------------------------------------------- 结果
@@ -233,6 +241,7 @@ class FPController:
         s = {"mode": self.mode, "decode_steps": self.step + 1, "prefill_calls": self.prefill_calls,
              "decode_calls": self.decode_calls, "stage_counts": {n: int(c) for n, c in zip(STAGE_NAMES, self.counts)},
              "selfcheck_max": float(max([c["max_abs_diff"] for c in self.selfchecks] or [0.0])),
+             "selfcheck_ratio_max": float(max([c["max_ratio"] for c in self.selfchecks] or [0.0])),
              "selfchecks": len(self.selfchecks)}
         if len(tr):
             s.update(rows=int(len(tr)), mean_delta=float(tr[:, 7].mean()), mean_requested=float(tr[:, 8].mean()),
