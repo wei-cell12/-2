@@ -99,6 +99,36 @@ def main():
     aa.add_argument("--heatmap-shared-scale", action="store_true", help="同一阶段所有热图用统一色阶，便于题间比较")
     aa.add_argument("--bootstrap", type=int, default=2000)
 
+    # ---- 五压力实验（PathVQA 重做），说明见 docs/服务器任务_PathVQA五压力_重做.md ----
+    fp = sub.add_parser("fp-prepare", help="五压力：取前 N 题，生成六个条件的消息")
+    fp.add_argument("--root", required=True)
+    fp.add_argument("--n", type=int, default=100)
+    fp.add_argument("--source", choices=["sycophancy", "synthetic"], default="sycophancy")
+    fo = sub.add_parser("fp-observe", help="五压力：中性 + 5 种压力各生成一次，在线记录注意力")
+    fo.add_argument("--conditions", nargs="*", default=None)
+    fo.add_argument("--limit", type=int, default=0, help="只跑前 N 题")
+    fx = sub.add_parser("fp-export", help="五压力：导出判读请求（判读者看不到条件和组别）")
+    fx.add_argument("--phase", choices=["obs", "int"], required=True)
+    fm = sub.add_parser("fp-import", help="五压力：导回判读")
+    fm.add_argument("--phase", choices=["obs", "int"], required=True)
+    fm.add_argument("--judgments", required=True)
+    fc = sub.add_parser("fp-candidates", help="五压力：选出全部“中性答对、受压答错”的观测")
+    fi = sub.add_parser("fp-intervene", help="五压力：干预（先 pilot，阅读确认后 full）")
+    fi.add_argument("--phase", choices=["pilot", "full"], required=True)
+    fi.add_argument("--arms", nargs="*", default=None, help="默认 restore_E rand_matched")
+    fpub = sub.add_parser("fp-public", help="五压力：整理可上传 GitHub 的内容（去掉 token 列表，数组只列清单）")
+    fpub.add_argument("--out", required=True)
+    fa = sub.add_parser("fp-analyze", help="五压力：汇总 A 注意力变化、B 干预效果")
+    fa.add_argument("--out", default=None)
+    fa.add_argument("--heatmaps", type=int, default=12, help="每种压力画前几题的热图")
+    for q in (fo, fi):
+        q.add_argument("--config", default=None)
+        q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
+        q.add_argument("--seed", type=int, default=42)
+        q.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE")
+    for q in (fx, fm, fc, fi, fa, fo, fpub):
+        q.add_argument("--root", required=True)
+
     a = ap.parse_args()
     if a.cmd == "prepare":
         if a.source == "sycophancy":
@@ -137,6 +167,25 @@ def main():
         print(analyze(a.ref, a.cmp, a.out, labels, a.heatmaps, a.bootstrap, shared_scale=a.heatmap_shared_scale))
     elif a.cmd == "eval":
         print(evaluate(a.runs, a.out, reps=a.bootstrap))
+    elif a.cmd.startswith("fp-"):
+        from symexp.fp import pipeline as fpp
+        if a.cmd == "fp-prepare":
+            fpp.prepare(a.root, a.n, a.source)
+        elif a.cmd == "fp-observe":
+            fpp.observe(Config.load(a.config, _overrides(a.set)), a.root, a.shard, a.limit, a.conditions, a.seed)
+        elif a.cmd == "fp-export":
+            print(f"exported {fpp.judge_export(a.root, a.phase)} replies -> {a.root}/{a.phase}/judge/requests.jsonl")
+        elif a.cmd == "fp-import":
+            print(f"imported {fpp.judge_import(a.root, a.phase, a.judgments)} judgments")
+        elif a.cmd == "fp-candidates":
+            fpp.candidates(a.root)
+        elif a.cmd == "fp-intervene":
+            fpp.intervene(Config.load(a.config, _overrides(a.set)), a.root, a.phase, a.arms, a.shard, a.seed)
+        elif a.cmd == "fp-public":
+            print(f"{fpp.public(a.root, a.out)} records -> {a.out}")
+        elif a.cmd == "fp-analyze":
+            from symexp.fp.analyze import analyze as fp_analyze
+            print(fp_analyze(a.root, a.out, a.heatmaps))
 
 
 if __name__ == "__main__":

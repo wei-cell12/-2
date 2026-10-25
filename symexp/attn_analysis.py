@@ -242,10 +242,13 @@ SHIFT = {"dlogL": 1, "dE": -1, "dU": 1, "retention": -1, "js": 1}   # 乘上符�
 
 def analyze(ref_spec: str, cmp_specs: List[str], out_dir: str, labels: Optional[Dict[str, bool]] = None,
             heatmap_ids: Optional[List[str]] = None, reps: int = 2000,
-            shared_scale: bool = False) -> str:
+            shared_scale: bool = False, ids_filter: Optional[List[str]] = None) -> str:
     os.makedirs(out_dir, exist_ok=True)
     rname, rdir, rtag = parse_source(ref_spec)
     ref_files = load_source(rdir, rtag)
+    if ids_filter is not None:
+        keep = set(ids_filter)
+        ref_files = {i: p for i, p in ref_files.items() if i in keep}
     heads_img = select_image_heads(ref_files)
     lines = ["# 图像注意力区域比较", "",
              f"参照组：`{rname}`（{rdir}，{rtag}），{len(ref_files)} 题。",

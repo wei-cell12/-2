@@ -194,3 +194,13 @@ python -m pytest -q
 ```
 
 `tests/test_smoke.py` 用 mock 后端在合成数据上跑完整流程（含两个 plain 目录合并、两种判对口径），mock 的数字没有意义。`hf_single_pass` 需要真实模型，测试里没有覆盖，请先用 `--limit 5` 检查。
+
+## 五压力实验（PathVQA 重做）
+
+代码在 `symexp/fp/`，命令是 `run.py fp-prepare / fp-observe / fp-export / fp-import / fp-candidates / fp-intervene / fp-analyze / fp-public`。服务器上的完整步骤见 `docs/服务器任务_PathVQA五压力_重做.md`。
+
+- 观察：中性加 5 种压力，生成时在线记录注意力；所有条件在 16 个标准层的解码上走同一条显式计算路径。
+- 干预：全部“中性答对、受压答错”的观测；`restore_E`（关键区域恢复）和 `rand_matched`（剂量匹配的随机区域）；预检时用 `base` 确认重新生成与观察逐 token 一致。
+- 判读：导出时 key 做了哈希，判读者看不到条件和组别。
+- 统计：按“次”报告；配对检验按图像分组（PathVQA 有多题共用一张图）。
+- 本地测试：`tests/test_fp.py`。规则用 numpy 测，整条流程用 mock 后端跑通；GPU 部分靠运行时的自动检查把关。

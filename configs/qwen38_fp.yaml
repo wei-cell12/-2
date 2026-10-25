@@ -1,0 +1,42 @@
+# Qwen3.8-27B，五压力实验（PathVQA 重做）用。与 qwen38_hf.yaml 相同，另外固定 attn_implementation: sdpa。
+# 设置与预实验（也就是复用的 plain）对齐，改动前请先看 README 的“复用 plain”一节。
+backend: hf
+model_path: /path/to/Qwen3.8-27B          # ← 改成预实验用的同一份权重
+model_class: Qwen3_5ForConditionalGeneration
+torch_dtype: bfloat16
+device_map: auto
+attn_implementation: sdpa
+workers: 1
+
+# 图像处理与预实验相同：65536～1048576 像素
+# （参数名按你的 processor 填；新版 transformers 可能要写成 size: {shortest_edge: ..., longest_edge: ...}）
+processor_kwargs: {min_pixels: 65536, max_pixels: 1048576}
+
+# 思考：medium 强度
+thinking_template_kwargs: {enable_thinking: true, reasoning_effort: medium}
+nothinking_template_kwargs: {enable_thinking: false}
+think_open: "<think>"
+think_close: "</think>"
+hf_single_pass: true        # 一次 generate 完成思考与回答，同预实验
+
+# 预实验没有 system 消息
+use_system_prompt: false
+
+# 解码（同预实验；seed 用命令行默认的 42）
+temperature: 1.0
+top_p: 0.95
+top_k: 20
+min_p: 0.0
+repetition_penalty: 1.0
+
+# 长度上限：最终回答（plain、SRT、本方法第 4 步）同预实验 4096 / 512；
+# 本方法的中间步骤单独设定，成本表里会分开记录
+think_budget: 4096
+answer_budget: 512
+step2_answer_budget: 2048
+step3a_answer_budget: 512
+step3c_think_budget: 2048
+step3c_answer_budget: 1024
+
+# 核查用裁切图放大到的长边（1048576 像素 ≈ 1024×1024）
+crop_target_long_side: 1024
