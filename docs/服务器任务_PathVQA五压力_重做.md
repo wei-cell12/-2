@@ -24,7 +24,13 @@
    - 机器重启后建议管理员查一下 `dmesg | grep -i xid` 并把结果附在汇报里；如果管理员同意，可以设功率上限 `sudo nvidia-smi -pm 1 && sudo nvidia-smi -pl 220`（重启后失效）。没有 sudo 权限就跳过，不影响实验。
    - **错开启动**：先启动第一个 worker，等它加载完模型、开始生成（日志里出现第一次生成，约 3～5 分钟）后再启动下一个，不要三个同时加载。
    - 不停止、不抢占、不修改任何别人的进程；不建常驻占卡进程。每个模型实例用两张卡，参数全部放在 GPU 上，不做 CPU offload。旧实验目录（`/mnt/sdg/linxin/pathvqa-five-pressure-20261025` 和上一次重做时建的目录）的文件都**不要删除**。
-   - **代码更新（提交见 `git log`）**：控制器不再在每个解码步把数据拷回 CPU，记录先留在 GPU 上、生成结束时一次拷出，守恒检查每 64 步同步一次、结束时再检查一次。计算本身没变，只是少了 GPU 等 CPU 的时间。上一次已经保存的 PV-000 的 6 份记录是旧代码生成的，为了全部结果出自同一份代码，**换一个新的 `ROOT` 从头跑**（旧目录保留不动，不要往里面续跑）。
+   - **代码更新（提交见 `git log`）**：控制器不再在每个解码步把数据拷回 CPU，记录先留在 GPU 上、生成结束时一次拷出，守恒检查每 64 步同步一次、结束时再检查一次。计算本身没变，只是少了 GPU 等 CPU 的时间，同样输入生成的 token 应当完全相同。**正在用旧代码跑的实验不用重跑**：先按下面“中途切换到新代码”做一次等价检查，通过后在**同一个 `ROOT`** 里用新代码续跑。
+   - **中途切换到新代码**：
+     1. 不动正在跑的 worker。另开一个 clone（`git clone` 到别的目录，checkout 最新 main），在空闲的两张卡上，对一个新的临时目录 `T` 跑：`cp $R/items.jsonl $T/` 后 `fp-observe --root $T --limit 1 --conditions neutral statement`。
+     2. 和 `$R/obs/records/` 里旧代码生成的同名记录比较：`output_ids` 必须完全相同；npz 里 `think`、`answer`、`pos_image_mass` 用 `np.allclose(rtol=1e-3, atol=1e-6)` 比较；`selfcheck_ratio_max` ≤ 1。顺便记下新旧两边的 `n_out / seconds`（token/s）。
+     3. 有任何不同就停下汇报，继续用旧代码，不要切换。
+     4. 全部相同：在 worker 刚保存完一份记录（日志出现一行 `k/N obs/...`）后，用 `kill -TERM <PID>` 停掉旧 worker。**不要用 Ctrl-C 或 SIGINT**：那会被当成出错，写进 `failures/`，之后的命令会拒绝运行。停完确认 `$R/failures/` 不存在或为空。
+     5. 在原 checkout 里 `git pull`，用同一个 `$R` 重新启动 worker（已完成的自动跳过，正在生成的那一份会重做）。
 2. 用 `configs/qwen38_fp.yaml`，复制一份，只改 `model_path`（以及按需要改 `device_map`）。其余设置不改。
 3. 新开一个实验目录 `ROOT`（例如 `/mnt/.../pathvqa-fp-20261026b`，和上一次重做的目录不同名），不覆盖任何旧结果。
 4. 出错时代码会在 `ROOT/failures/` 留下现场并退出；之后的命令看到这个目录不为空就会拒绝运行。**不要自动重试**，诊断后汇报。
