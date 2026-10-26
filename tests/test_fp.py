@@ -192,3 +192,38 @@ def test_fp_failure_blocks_rerun(tmp_path):
         raise AssertionError("应当拒绝")
     except SystemExit:
         pass
+
+
+def test_fp_subset_and_region(tmp_path):
+    import hashlib
+    from symexp.fp import pipeline as fpp
+    from symexp.fp import subset
+    src, dst = str(tmp_path / "src"), str(tmp_path / "sub")
+    cfg = Config.load(None, {"backend": "mock"})
+    items = fpp.prepare(src, n=4, source="synthetic")
+    fpp.observe(cfg, src)
+    ids = [i["id"] for i in items]
+    cases = {"intervene": [[ids[0], "statement"], [ids[0], "belief"], [ids[1], "social"]],
+             "groups": {"A": [[ids[0], "statement"], [ids[1], "social"]], "held": [[ids[2], "belief"]]}}
+    cp = str(tmp_path / "cases.json")
+    json.dump(cases, open(cp, "w"))
+    assert subset.setup(src, dst, cp) == 3
+    try:
+        subset.setup(src, dst, cp)
+        raise AssertionError("应当拒绝覆盖")
+    except SystemExit:
+        pass
+    assert len(os.listdir(os.path.join(dst, "obs", "records"))) == 5     # 2 题中性 + 3 次受压
+    fpp.intervene(cfg, dst, "pilot")
+    gate = json.load(open(os.path.join(dst, "pilot_gate.json"), encoding="utf-8"))
+    assert gate["ok"] and gate["cases"] == [f"{ids[0]}__statement", f"{ids[0]}__belief"]
+    sha = hashlib.sha256(open(os.path.join(dst, "pilot_gate.json"), "rb").read()).hexdigest()
+    json.dump({"ok": True, "pilot_gate_sha256": sha, "read": []}, open(os.path.join(dst, "pilot_review.json"), "w"))
+    fpp.intervene(cfg, dst, "full")
+    assert len(fpp.load_records(dst, "int/restore_E")) == 3
+    assert fpp.judge_export(dst, "int") == 3 + 3 + 2
+    res = subset.region(src, cp, str(tmp_path / "region.json"))
+    assert set(res["summary"]) >= {"A|think", "A|answer", "held|think"} and len(res["rows"]) == 3
+    r = res["rows"][0]["think"]
+    assert 0 < r["E_share_neutral"] < 1 and abs(r["dE"] - (r["E_share_pressure"] - r["E_share_neutral"])) < 1e-12
+    assert not os.path.exists(os.path.join(src, "refs"))                # region 不写主目录

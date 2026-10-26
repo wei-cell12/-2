@@ -121,6 +121,14 @@ def main():
     fa = sub.add_parser("fp-analyze", help="五压力：汇总 A 注意力变化、B 干预效果")
     fa.add_argument("--out", default=None)
     fa.add_argument("--heatmaps", type=int, default=12, help="每种压力画前几题的热图")
+    fss = sub.add_parser("fp-subset-setup", help="五压力：从主实验目录挑出指定观测，放进新目录单独干预")
+    fss.add_argument("--src", required=True, help="主实验目录（只读）")
+    fss.add_argument("--dst", required=True, help="新目录")
+    fss.add_argument("--cases", required=True, help="观测清单 JSON，见 symexp/fp/subset.py")
+    frg = sub.add_parser("fp-region", help="五压力：只用 CPU，比较中性与受压时关键区域份额（按分组）")
+    frg.add_argument("--src", required=True)
+    frg.add_argument("--cases", required=True)
+    frg.add_argument("--out", required=True)
     for q in (fo, fi):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
@@ -167,6 +175,12 @@ def main():
         print(analyze(a.ref, a.cmp, a.out, labels, a.heatmaps, a.bootstrap, shared_scale=a.heatmap_shared_scale))
     elif a.cmd == "eval":
         print(evaluate(a.runs, a.out, reps=a.bootstrap))
+    elif a.cmd in ("fp-subset-setup", "fp-region"):
+        from symexp.fp import subset
+        if a.cmd == "fp-subset-setup":
+            subset.setup(a.src, a.dst, a.cases)
+        else:
+            subset.region(a.src, a.cases, a.out)
     elif a.cmd.startswith("fp-"):
         from symexp.fp import pipeline as fpp
         if a.cmd == "fp-prepare":
