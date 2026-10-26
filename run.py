@@ -129,12 +129,15 @@ def main():
     frg.add_argument("--src", required=True)
     frg.add_argument("--cases", required=True)
     frg.add_argument("--out", required=True)
-    for q in (fo, fi):
+    fpu = sub.add_parser("fp-push", help="五压力：推力分析（重读已保存的记录，不生成）")
+    fpu.add_argument("--cases", required=True, help="观测清单 JSON，见 docs/pathvqa_push10_cases.json")
+    fpu.add_argument("--out", required=True)
+    for q in (fo, fi, fpu):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
         q.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE")
-    for q in (fx, fm, fc, fi, fa, fo, fpub):
+    for q in (fx, fm, fc, fi, fa, fo, fpub, fpu):
         q.add_argument("--root", required=True)
 
     a = ap.parse_args()
@@ -195,6 +198,9 @@ def main():
             fpp.candidates(a.root)
         elif a.cmd == "fp-intervene":
             fpp.intervene(Config.load(a.config, _overrides(a.set)), a.root, a.phase, a.arms, a.shard, a.seed)
+        elif a.cmd == "fp-push":
+            from symexp.fp.push import run as fp_push
+            fp_push(Config.load(a.config, _overrides(a.set)), a.root, a.cases, a.out)
         elif a.cmd == "fp-public":
             print(f"{fpp.public(a.root, a.out)} records -> {a.out}")
         elif a.cmd == "fp-analyze":

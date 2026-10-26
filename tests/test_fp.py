@@ -227,3 +227,41 @@ def test_fp_subset_and_region(tmp_path):
     r = res["rows"][0]["think"]
     assert 0 < r["E_share_neutral"] < 1 and abs(r["dE"] - (r["E_share_pressure"] - r["E_share_neutral"])) < 1e-12
     assert not os.path.exists(os.path.join(src, "refs"))                # region 不写主目录
+
+
+def test_push_helpers():
+    from symexp.fp.push import PushCheckFailed, claim_span, find_target, pair_ids
+    neu = [1, 2, 3, 9, 9, 7, 8]
+    pre = [1, 2, 3, 50, 51, 52, 9, 9, 7, 8]
+    assert claim_span(pre, neu) == (3, 6)
+
+    vocab = {0: "<close>", 1: "Yes", 2: " —", 3: " I", 4: " agree", 5: ": the answer is", 6: " **", 7: "no",
+             8: "**", 9: ".", 10: " Yes", 11: " no", 12: "No", 13: " **No"}
+    inv = {v: k for k, v in vocab.items()}
+
+    class Tok:
+        def decode(self, ids, **kw):
+            return "".join(vocab[i] for i in ids if i != 0)
+
+        def encode(self, s, add_special_tokens=False):
+            return [inv[s]] if s in inv else [98, 99]
+
+    tok = Tok()
+    out = [5, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]       # 思考 5，</think>，"Yes — I agree: the answer is **no**."
+    dec = tok.decode
+    assert find_target(dec, out, 1, "") == 2                      # 第一个 yes/no 是 "Yes"
+    assert find_target(dec, out, 1, "the answer is **") == 8     # 定位文字之后是 "no"
+    yes_id, no_id, form = pair_ids(tok, 12)                       # "No" ↔ "Yes"
+    assert (yes_id, no_id, form) == (1, 12, "No")
+    out2 = [5, 0, 13, 9]                                          # 合并成一个 token 的 " **No"
+    assert find_target(dec, out2, 1, " **") == 2
+    try:
+        pair_ids(tok, 7)                                          # "no" ↔ "yes" 不在词表 → 不是单个 token
+        raise AssertionError("应当拒绝")
+    except PushCheckFailed:
+        pass
+    try:
+        find_target(dec, out, 1, "not in the text")
+        raise AssertionError("应当拒绝")
+    except PushCheckFailed:
+        pass
