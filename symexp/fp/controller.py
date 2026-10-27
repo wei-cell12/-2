@@ -188,30 +188,31 @@ class FPController:
         p_new = p
         if self.mode in ("restore_E", "rand_matched"):
             hs, E, r, R, RW = self._ref_tensors(layer, self.stage, query.device)
-            sub = p_img.index_select(0, hs)
-            new_e, info_e = restore(self.xp, sub, E, r, self.lam, self.floor)
-            v = self._violation(query.device)
-            if self.mode == "restore_E":
-                new_sub, info = new_e, info_e
-                v[2] += ((info["delta"] > 1e-6) & (info["region_after"] <= info["region_before"])).sum()
-            else:
-                new_sub, info = matched(self.xp, sub, R, RW, info_e["delta"], self.floor)
-            p_new = p.clone()
-            p_new[hs[:, None], img[None, :]] = new_sub
-            a, b = p.index_select(0, hs), p_new.index_select(0, hs)
-            ia, ib = a.index_select(1, img).sum(-1), b.index_select(1, img).sum(-1)
-            ra, rb = a.sum(-1), b.sum(-1)
-            c_img, c_txt, c_row = (ib - ia).abs(), ((rb - ib) - (ra - ia)).abs(), (rb - ra).abs()
-            v[0] = t.maximum(v[0], t.stack([c_img.max(), c_txt.max(), c_row.max()]).max())
-            v[1] = t.maximum(v[1], -b.min())
-            n = hs.numel()
-            if layer not in self.trace_buf:
-                self.trace_buf[layer] = t.zeros(self.max_rows, n, len(TRACE_COLS), dtype=t.float32, device=query.device)
-            f = lambda x: t.full((n,), float(x), dtype=t.float32, device=query.device)
-            self.trace_buf[layer][self.step] = t.stack(
-                [f(self.step), f(layer), hs.float(), f(self.stage), info["region_before"].float(),
-                 info["region_after"].float(), info["P"].float(), info["delta"].float(), info["requested"].float(),
-                 info["clamped"].float(), c_img.float(), c_txt.float(), c_row.float()], -1)
+            if hs.numel() > 0:
+                sub = p_img.index_select(0, hs)
+                new_e, info_e = restore(self.xp, sub, E, r, self.lam, self.floor)
+                v = self._violation(query.device)
+                if self.mode == "restore_E":
+                    new_sub, info = new_e, info_e
+                    v[2] += ((info["delta"] > 1e-6) & (info["region_after"] <= info["region_before"])).sum()
+                else:
+                    new_sub, info = matched(self.xp, sub, R, RW, info_e["delta"], self.floor)
+                p_new = p.clone()
+                p_new[hs[:, None], img[None, :]] = new_sub
+                a, b = p.index_select(0, hs), p_new.index_select(0, hs)
+                ia, ib = a.index_select(1, img).sum(-1), b.index_select(1, img).sum(-1)
+                ra, rb = a.sum(-1), b.sum(-1)
+                c_img, c_txt, c_row = (ib - ia).abs(), ((rb - ib) - (ra - ia)).abs(), (rb - ra).abs()
+                v[0] = t.maximum(v[0], t.stack([c_img.max(), c_txt.max(), c_row.max()]).max())
+                v[1] = t.maximum(v[1], -b.min())
+                n = hs.numel()
+                if layer not in self.trace_buf:
+                    self.trace_buf[layer] = t.zeros(self.max_rows, n, len(TRACE_COLS), dtype=t.float32, device=query.device)
+                f = lambda x: t.full((n,), float(x), dtype=t.float32, device=query.device)
+                self.trace_buf[layer][self.step] = t.stack(
+                    [f(self.step), f(layer), hs.float(), f(self.stage), info["region_before"].float(),
+                     info["region_after"].float(), info["P"].float(), info["delta"].float(), info["requested"].float(),
+                     info["clamped"].float(), c_img.float(), c_txt.float(), c_row.float()], -1)
         self._accumulate(layer, slot, p_img, p_new.index_select(1, img))
         rep = p.shape[0] // value.shape[1]
         v_ = value.repeat_interleave(rep, dim=1) if rep > 1 else value
