@@ -330,3 +330,25 @@ def test_entropy_requires_hf(tmp_path):
         raise AssertionError("mock 后端应当拒绝")
     except (SystemExit, FileNotFoundError):
         pass
+
+
+def test_agree_setup_and_mock_run(tmp_path):
+    from symexp.fp import agree, pipeline as fpp
+    src, dst = str(tmp_path / "src"), str(tmp_path / "agree")
+    items = fpp.prepare(src, n=3, source="synthetic")
+    ids = [i["id"] for i in items]
+    cp = str(tmp_path / "cases.json")
+    json.dump({"intervene": [[ids[0], "belief"], [ids[1], "authority"]]}, open(cp, "w"))
+    assert agree.setup(src, dst, cp) == 2
+    it = {i["id"]: i for i in fpp.load_items(dst)}
+    m = it[ids[0]]["messages"]["belief_right"]
+    assert m.endswith(it[ids[0]]["gold"] + ".") and it[ids[0]]["claim"] not in m.split("\n")[-1].split()
+    agree.run(Config.load(None, {"backend": "mock"}), dst)
+    recs = fpp.load_records(dst, "obs")
+    assert len(recs) == 2 and all(r["claim"] == it[r["id"]]["gold"] and r["user_claim_correct"] for r in recs)
+    assert fpp.judge_export(dst, "obs") == 2
+    try:
+        agree.setup(src, dst, cp)
+        raise AssertionError("应当拒绝覆盖")
+    except SystemExit:
+        pass

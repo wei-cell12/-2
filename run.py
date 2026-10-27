@@ -137,14 +137,19 @@ def main():
     fdu = sub.add_parser("fp-dual", help="五压力：锚点一 v2（逐步参照，双分支同步），先 pilot，阅读确认后 full")
     fdu.add_argument("--phase", choices=["pilot", "full"], required=True)
     fdu.add_argument("--lam", type=float, default=1.0, help="混合系数 λ（默认 1：换成中性分支此刻的分布）")
+    fas = sub.add_parser("fp-agree-setup", help="五压力：建“用户说对”（主张 = 正确答案）的对照目录")
+    fas.add_argument("--src", required=True, help="已有实验目录（只读）")
+    fas.add_argument("--dst", required=True, help="新目录")
+    fas.add_argument("--cases", required=True, help="题目清单 JSON（intervene: [[id, 压力], ...]）")
+    fag = sub.add_parser("fp-agree", help="五压力：生成“用户说对”条件（与观察阶段相同的设置）")
     fen = sub.add_parser("fp-entropy", help="五压力：熵差分析（重读已保存的轨迹，受压/中性提示各前向一次，不生成）")
     fen.add_argument("--out", required=True)
-    for q in (fo, fi, fpu, fdu, fen):
+    for q in (fo, fi, fpu, fdu, fen, fag):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
         q.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE")
-    for q in (fx, fm, fc, fi, fa, fo, fpub, fpu, fdu, fen):
+    for q in (fx, fm, fc, fi, fa, fo, fpub, fpu, fdu, fen, fag):
         q.add_argument("--root", required=True)
 
     a = ap.parse_args()
@@ -185,6 +190,12 @@ def main():
         print(analyze(a.ref, a.cmp, a.out, labels, a.heatmaps, a.bootstrap, shared_scale=a.heatmap_shared_scale))
     elif a.cmd == "eval":
         print(evaluate(a.runs, a.out, reps=a.bootstrap))
+    elif a.cmd == "fp-agree-setup":
+        from symexp.fp import agree
+        agree.setup(a.src, a.dst, a.cases)
+    elif a.cmd == "fp-agree":
+        from symexp.fp import agree
+        agree.run(Config.load(a.config, _overrides(a.set)), a.root, a.shard, a.seed)
     elif a.cmd in ("fp-subset-setup", "fp-region"):
         from symexp.fp import subset
         if a.cmd == "fp-subset-setup":
