@@ -321,3 +321,12 @@ def test_dual_perm_and_mock_pipeline(tmp_path):
     assert len(fpp.load_records(dst, "int/dual_mix")) == 3 and len(fpp.load_records(dst, "int/dual_shuffle")) == 3
     assert len(fpp.load_records(dst, "int/dual_base")) == 2
     assert fpp.judge_export(dst, "int") == 3 + 3 + 2
+
+
+def test_entropy_requires_hf(tmp_path):
+    from symexp.fp import entropy
+    try:
+        entropy.run(Config.load(None, {"backend": "mock"}), str(tmp_path), str(tmp_path / "out" / "e.json"))
+        raise AssertionError("mock 后端应当拒绝")
+    except (SystemExit, FileNotFoundError):
+        pass

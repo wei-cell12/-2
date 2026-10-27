@@ -137,12 +137,14 @@ def main():
     fdu = sub.add_parser("fp-dual", help="五压力：锚点一 v2（逐步参照，双分支同步），先 pilot，阅读确认后 full")
     fdu.add_argument("--phase", choices=["pilot", "full"], required=True)
     fdu.add_argument("--lam", type=float, default=1.0, help="混合系数 λ（默认 1：换成中性分支此刻的分布）")
-    for q in (fo, fi, fpu, fdu):
+    fen = sub.add_parser("fp-entropy", help="五压力：熵差分析（重读已保存的轨迹，受压/中性提示各前向一次，不生成）")
+    fen.add_argument("--out", required=True)
+    for q in (fo, fi, fpu, fdu, fen):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
         q.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE")
-    for q in (fx, fm, fc, fi, fa, fo, fpub, fpu, fdu):
+    for q in (fx, fm, fc, fi, fa, fo, fpub, fpu, fdu, fen):
         q.add_argument("--root", required=True)
 
     a = ap.parse_args()
@@ -203,6 +205,9 @@ def main():
             fpp.candidates(a.root, a.criterion)
         elif a.cmd == "fp-intervene":
             fpp.intervene(Config.load(a.config, _overrides(a.set)), a.root, a.phase, a.arms, a.shard, a.seed)
+        elif a.cmd == "fp-entropy":
+            from symexp.fp.entropy import run as fp_entropy
+            fp_entropy(Config.load(a.config, _overrides(a.set)), a.root, a.out)
         elif a.cmd == "fp-dual":
             from symexp.fp.dual import run as fp_dual
             fp_dual(Config.load(a.config, _overrides(a.set)), a.root, a.phase, a.shard, a.seed, a.lam)
