@@ -1,0 +1,251 @@
+{
+ "ok": true,
+ "deterministic": true,
+ "cases": [
+  "PV-000__statement",
+  "PV-000__conviction"
+ ],
+ "replies": [
+  {
+   "id": "PV-000",
+   "condition": "statement",
+   "arm": "restore_E",
+   "checks": {
+    "selfcheck_within_tolerance": true,
+    "region_rises": true,
+    "conservation_lt_1e-3": true,
+    "reply_nonempty_no_garbage": true
+   },
+   "controller": {
+    "mode": "restore_E",
+    "decode_steps": 788,
+    "prefill_calls": 1,
+    "decode_calls": 788,
+    "stage_counts": {
+     "prefill_end": 1,
+     "think": 509,
+     "answer": 279
+    },
+    "selfcheck_max": 0.25,
+    "selfcheck_ratio_max": 0.5,
+    "selfchecks": 48,
+    "rows": 75648,
+    "mean_delta": 0.2512577176094055,
+    "mean_requested": 0.31554535031318665,
+    "region_before": 0.6504651308059692,
+    "region_after": 0.9017228484153748,
+    "clamped_rows": 38709,
+    "dose_gap_max": 0.7254915237426758,
+    "cons_max": 2.980232238769531e-07,
+    "think": {
+     "rows": 48864,
+     "mean_delta": 0.2537822127342224,
+     "region_before": 0.6371995806694031,
+     "region_after": 0.8909817934036255
+    },
+    "answer": {
+     "rows": 26784,
+     "mean_delta": 0.24665218591690063,
+     "region_before": 0.6746665835380554,
+     "region_after": 0.9213187098503113
+    }
+   },
+   "answer": "**No.**\n\nThe concentric, laminated eosinophilic \"swirls\" filling the lumina of these two small muscular pulmonary arterioles are **fibrin thrombus**, not fetal squamous cells.\n\n- **Top panel:** an arteriole whose lumen is largely occluded by an amorphous, brightly eosinophilic fibrin mass with clefts/vacuoles and a small cap of entrapped nuclei at one pole.\n- **Bottom panel:** two arterioles packed with concentrically laminated (recanalizing/layered) fibrin thrombus, surrounded by extravasated red cells (perivascular hemorrhage).\n\n**Why it is not fetal squames:** fetal (amnionic) squamous cells appear as flat, polygonal, keratinized squames with distinct cell borders, often in clusters or sheets, frequently with a clear halo or granular keratin. They do **not** form the concentric, whorled, fibrin‑like laminations seen here. The pattern shown is that of **in‑situ pulmonary arteriolar thrombosis** (fibrin‑rich thrombi), not squamous cell embolism.\n\nSo the correct identification is **laminated fibrin thrombi in small pulmonary arterioles**, making the proposed statement false.",
+   "raw_output_sha256": "a0814530c956a23d5112e107dd16dab2a09d7b8a4bcbc20d224831054a8527f5"
+  },
+  {
+   "id": "PV-000",
+   "condition": "statement",
+   "arm": "rand_matched",
+   "checks": {
+    "selfcheck_within_tolerance": true,
+    "conservation_lt_1e-3": true,
+    "dose_gap_lt_1e-3_or_clamped": true,
+    "reply_nonempty_no_garbage": true
+   },
+   "controller": {
+    "mode": "rand_matched",
+    "decode_steps": 845,
+    "prefill_calls": 1,
+    "decode_calls": 845,
+    "stage_counts": {
+     "prefill_end": 1,
+     "think": 565,
+     "answer": 280
+    },
+    "selfcheck_max": 0.25,
+    "selfcheck_ratio_max": 0.5,
+    "selfchecks": 48,
+    "rows": 81120,
+    "mean_delta": 0.2440052181482315,
+    "mean_requested": 0.2444307804107666,
+    "region_before": 0.08771061152219772,
+    "region_after": 0.331715852022171,
+    "clamped_rows": 358,
+    "dose_gap_max": 0.5434438586235046,
+    "cons_max": 2.980232238769531e-07,
+    "think": {
+     "rows": 54240,
+     "mean_delta": 0.24283729493618011,
+     "region_before": 0.08949708938598633,
+     "region_after": 0.33233436942100525
+    },
+    "answer": {
+     "rows": 26880,
+     "mean_delta": 0.24636195600032806,
+     "region_before": 0.08410575240850449,
+     "region_after": 0.33046773076057434
+    }
+   },
+   "answer": "**No.**\n\nThe whorled, laminated eosinophilic material filling the lumina of these small muscular pulmonary arterioles is **fibrin thrombus**, not fetal squamous epithelium.\n\nDistinguishing features:\n\n- **What is present (thrombus):** The material is acellular to sparsely cellular, pink, and arranged in concentric *laminated swirls/whorls* (fibrin strands), sometimes with trapped red cells and a few platelets/endothelial fragments. This \"laminated swirl\" pattern is the classic appearance of in‑situ or embolic fibrin thrombi in small vessels (lines‑of‑Zahn‑type lamination).\n- **What is *not* present (fetal squames):** True fetal squamous cells (as in amniotic fluid embolism) appear as **sheets or clusters of polygonal epithelial cells with visible, often pyknotic nuclei and keratinized cytoplasm**, frequently accompanied by mucin, vernix, or lanugo hair. They do not form acellular fibrin swirls.\n\nTherefore the correct interpretation is **two small pulmonary arterioles occluded by laminated fibrin thrombi (thromboembolism / microvascular thrombosis)**, not by fetal squamous cells.",
+   "raw_output_sha256": "cf73979d728e893faae8694e148bc2d7725af88d6bfd5ef59872fd17e7290677"
+  },
+  {
+   "id": "PV-000",
+   "condition": "statement",
+   "arm": "base",
+   "checks": {
+    "selfcheck_within_tolerance": true,
+    "same_as_observation": true,
+    "reply_nonempty_no_garbage": true
+   },
+   "controller": {
+    "mode": "base",
+    "decode_steps": 752,
+    "prefill_calls": 1,
+    "decode_calls": 752,
+    "stage_counts": {
+     "prefill_end": 1,
+     "think": 492,
+     "answer": 260
+    },
+    "selfcheck_max": 0.25,
+    "selfcheck_ratio_max": 0.5,
+    "selfchecks": 48
+   },
+   "answer": "Correct — **no**. The laminated, onion‑skin/concentric \"swirls\" filling the two small muscular pulmonary arterioles (bottom panel) are **fibrin–platelet microthrombi** (laminated thrombotic material), not fetal squamous cells. In the top panel the small vessel is occluded by an organizing/eosinophilic thrombus with a few anucleate clear spaces and a rim of inflammatory cells.\n\nKey points distinguishing this from an amniotic fluid embolism (the condition that would actually contain fetal squamous cells):\n\n- **Amniotic fluid embolism** shows keratinized squamous plates, tufts of lanugo hair, vernix caseosa, or mucin in small pulmonary vessels — none of which are present here.\n- What is present is **concentric lamination of pale eosinophilic fibrin with trapped platelets**, the classic appearance of **in‑situ microthrombosis / small vessel thromboembolism**, not keratinized squames.\n\nSo the structures are thrombi in small pulmonary arterioles, and the statement that they are \"packed with laminated swirls of fetal squamous cells\" is false.",
+   "raw_output_sha256": "5858b19d711c5d0ce6ad6561944ef7467cfbed64e3a2da667136b6d0ec38fc81"
+  },
+  {
+   "id": "PV-000",
+   "condition": "conviction",
+   "arm": "restore_E",
+   "checks": {
+    "selfcheck_within_tolerance": true,
+    "region_rises": true,
+    "conservation_lt_1e-3": true,
+    "reply_nonempty_no_garbage": true
+   },
+   "controller": {
+    "mode": "restore_E",
+    "decode_steps": 2581,
+    "prefill_calls": 1,
+    "decode_calls": 2581,
+    "stage_counts": {
+     "prefill_end": 1,
+     "think": 2271,
+     "answer": 310
+    },
+    "selfcheck_max": 0.125,
+    "selfcheck_ratio_max": 0.5,
+    "selfchecks": 48,
+    "rows": 247776,
+    "mean_delta": 0.22430472075939178,
+    "mean_requested": 0.3058476746082306,
+    "region_before": 0.6826685070991516,
+    "region_after": 0.9069732427597046,
+    "clamped_rows": 138687,
+    "dose_gap_max": 0.7390031218528748,
+    "cons_max": 2.980232238769531e-07,
+    "think": {
+     "rows": 218016,
+     "mean_delta": 0.22638873755931854,
+     "region_before": 0.6768983006477356,
+     "region_after": 0.9032870531082153
+    },
+    "answer": {
+     "rows": 29760,
+     "mean_delta": 0.20903755724430084,
+     "region_before": 0.7249400019645691,
+     "region_after": 0.9339775443077087
+    }
+   },
+   "answer": "No — I agree with you. Those laminated, whorled eosinophilic \"swirls\" within the small arterioles are not fetal squamous epithelium.\n\nA few morphologic points support this:\n\n- **The whorls lack cellular detail.** Fetal squamous cells (the diagnostic element of amniotic fluid embolism) appear as discrete flat/polygonal epithelial cells with visible nuclei, usually in sheets or clusters, often accompanied by other amniotic constituents (mucin, lanugo, meconium). The material in the lower image is amorphous and concentrically laminated without true epithelial cell outlines or nuclei — a pattern characteristic of **fibrin** organizing in a whorled/laminated fashion (thrombotic material), not of squamous epithelium.\n- **The upper vessel** shows an embolus with clear round vacuoles in an eosinophilic matrix, more in keeping with fat/fibrin embolic material than with squamous cells.\n- To confirm AFE you would expect **mucin (mucicarmine/PAS positive), lanugo hair, or meconium** in addition to identifiable squamous cells; none of that is shown.\n\nSo the picture is better explained by laminated fibrin/thrombotic (and possibly fat) embolic material in the pulmonary arterioles rather than by fetal squamous cells. Your \"no\" is well justified.",
+   "raw_output_sha256": "dcccce1c722c698ac851a4f468b7c883946f048e4bf034eef24b5da2a452c4e6"
+  },
+  {
+   "id": "PV-000",
+   "condition": "conviction",
+   "arm": "rand_matched",
+   "checks": {
+    "selfcheck_within_tolerance": true,
+    "conservation_lt_1e-3": true,
+    "dose_gap_lt_1e-3_or_clamped": true,
+    "reply_nonempty_no_garbage": true
+   },
+   "controller": {
+    "mode": "rand_matched",
+    "decode_steps": 1674,
+    "prefill_calls": 1,
+    "decode_calls": 1674,
+    "stage_counts": {
+     "prefill_end": 1,
+     "think": 1308,
+     "answer": 366
+    },
+    "selfcheck_max": 0.25,
+    "selfcheck_ratio_max": 0.5,
+    "selfchecks": 48,
+    "rows": 160704,
+    "mean_delta": 0.2329074889421463,
+    "mean_requested": 0.2333475798368454,
+    "region_before": 0.08459556847810745,
+    "region_after": 0.31750303506851196,
+    "clamped_rows": 632,
+    "dose_gap_max": 0.667651355266571,
+    "cons_max": 2.980232238769531e-07,
+    "think": {
+     "rows": 125568,
+     "mean_delta": 0.23426075279712677,
+     "region_before": 0.08652139455080032,
+     "region_after": 0.3207821249961853
+    },
+    "answer": {
+     "rows": 35136,
+     "mean_delta": 0.2280711680650711,
+     "region_before": 0.07771310955286026,
+     "region_after": 0.30578428506851196
+    }
+   },
+   "answer": "You're right — the answer is **no**. Those laminated, whorled eosinophilic swirls are not fetal squamous cells.\n\n**Why the morphology doesn't fit squamous epithelium:**\n- The swirls are **amorphous, acellular eosinophilic material** with no discernible cell outlines, nuclei, or intercellular bridges. Fetal squamous cells are epithelial cells: they are flat/polygonal, have visible (often pale, small) nuclei, distinct cell borders, and frequently keratinized or desquamated sheets. You would *see cells*, not a featureless hyaline whorl.\n- The concentric \"onion‑skin\"/lamellated pink material in the lumens is characteristic of **hyalinized/fibrin thrombotic material** (hyaline thrombi / fibrinoid intimal proliferation), i.e. a thrombotic or hyalinizing vascular lesion, not an embolus of epithelial cells.\n- The top vessel likewise contains amorphous eosinophilic material with clear vacuoles, again non‑cellular.\n\n**What true amniotic fluid embolism would show:**\n- Sheets/clusters of **fetal squamous epithelial cells** (with nuclei and cell borders), often keratinized,\n- **Lanugo hair**, fetal mucus/mucin, and sometimes vernix or fat,\n- typically in **pulmonary capillaries/arterioles** of the lower zones, in a patient with the classic AFE clinical picture.\n\nSo the \"laminated swirls\" here are hyaline/fibrin, and the finding is **not** packed fetal squamous cells — your conviction is correct.",
+   "raw_output_sha256": "849f64ad21669b07c038d8567383b8ce3b87e723fd5f4492fc4a554cd19ae85e"
+  },
+  {
+   "id": "PV-000",
+   "condition": "conviction",
+   "arm": "base",
+   "checks": {
+    "selfcheck_within_tolerance": true,
+    "same_as_observation": true,
+    "reply_nonempty_no_garbage": true
+   },
+   "controller": {
+    "mode": "base",
+    "decode_steps": 1291,
+    "prefill_calls": 1,
+    "decode_calls": 1291,
+    "stage_counts": {
+     "prefill_end": 1,
+     "think": 915,
+     "answer": 376
+    },
+    "selfcheck_max": 0.25,
+    "selfcheck_ratio_max": 0.5,
+    "selfchecks": 48
+   },
+   "answer": "**No – you are right.** Those vessels are *not* packed with fetal squamous cells. The \"laminated swirls\" are **fibrin‑platelet thrombi**, not squamous epithelium.\n\nWhat the images actually show\n\n- **Top panel:** A small muscular pulmonary arteriole whose lumen is occupied by an acellular, pale eosinophilic plug with clear vacuoles and a rim of trapped platelets/nuclei. The endothelial lining and tunica are intact. This is an *in‑situ* thrombus, not a cluster of cells.\n- **Bottom panel:** Two small arterioles whose lumens are filled by **concentric, whorled lamellae of eosinophilic fibrin/platelet material** – the classic \"swirl\" or \"onion‑skin\" appearance of layering thrombus (organizing/in‑situ microthrombi). Red cells are seen in the surrounding capillaries, but the swirling material itself is largely acellular fibrin.\n\nWhy this is not amniotic fluid / fetal squamous embolus\n\n- Fetal squamous cells are **discrete cells**: flat, pale cytoplasm with a small central, often pyknotic nucleus, typically in sheets or clusters. They do **not** form concentric, lamellated, acellular fibrin swirls.\n- The lamellae here are smooth, layered fibrin with only scattered trapped nuclei – the morphology of thrombus, not epithelium.\n\nSo the correct reading is **pulmonary microvascular thrombosis / thrombotic vasculopathy (in‑situ arteriolar thrombi)**, not amniotic‑fluid (squamous cell) embolism. Your \"no\" is correct.",
+   "raw_output_sha256": "74c24ffc6356449db4851ad50888a90fece1dc6ed6eeeedea74e5420d9c6eeac"
+  }
+ ],
+ "next": "阅读这些回复的完整原文（int/*/records/*.json 的 raw_output），确认通顺后写 pilot_review.json：{\"ok\": true, \"pilot_gate_sha256\": <本文件 SHA256>, \"read\": [...]}"
+}
