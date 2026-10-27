@@ -144,7 +144,11 @@ def main():
     fag = sub.add_parser("fp-agree", help="五压力：生成“用户说对”条件（与观察阶段相同的设置）")
     fen = sub.add_parser("fp-entropy", help="五压力：熵差分析（重读已保存的轨迹，受压/中性提示各前向一次，不生成）")
     fen.add_argument("--out", required=True)
-    for q in (fo, fi, fpu, fdu, fen, fag):
+    fsp = sub.add_parser("fp-spans", help="五压力：逐 token 注意力去向（图像/问题/用户主张/自己写的内容），整段前向一次，不生成")
+    fsp.add_argument("--roots", nargs="+", required=True, help="一个或多个实验目录（只读）")
+    fsp.add_argument("--subs", default="obs,int", help="读哪些记录：obs、int 或 obs,int")
+    fsp.add_argument("--out", required=True)
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -219,6 +223,9 @@ def main():
         elif a.cmd == "fp-entropy":
             from symexp.fp.entropy import run as fp_entropy
             fp_entropy(Config.load(a.config, _overrides(a.set)), a.root, a.out)
+        elif a.cmd == "fp-spans":
+            from symexp.fp.spans import run as fp_spans
+            fp_spans(Config.load(a.config, _overrides(a.set)), a.roots, a.out, a.subs.split(","), a.shard)
         elif a.cmd == "fp-dual":
             from symexp.fp.dual import run as fp_dual
             fp_dual(Config.load(a.config, _overrides(a.set)), a.root, a.phase, a.shard, a.seed, a.lam)

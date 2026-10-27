@@ -352,3 +352,45 @@ def test_agree_setup_and_mock_run(tmp_path):
         raise AssertionError("应当拒绝覆盖")
     except SystemExit:
         pass
+
+
+def test_spans_helpers():
+    import numpy as np
+    from symexp.fp import spans
+    pieces = ["<|im_start|>", "user", "\n", "<|image_pad|>", "<|image_pad|>", "is", " it", " red", "?", "\n",
+              "I", " believe", " no", ".", "<|im_end|>"]
+    text = "".join(pieces)
+    q = spans.char_span_tokens(pieces, spans.find_once(text, "is it red?", "问题"))
+    assert q == [5, 6, 7, 8]
+    msg = "is it red?\nI believe no."
+    claim = spans.split_message(msg, "is it red?")
+    assert claim == "I believe no." and spans.split_message("is it red?", "is it red?") is None
+    c = spans.char_span_tokens(pieces, spans.find_once(text, claim, "主张"))
+    assert c == [10, 11, 12, 13]
+    lab = spans.key_labels(len(pieces), 3, [3, 4], q, c)
+    assert [spans.CATS[i] for i in lab[[0, 3, 5, 10, 15]]] == ["other", "image", "question", "claim", "output"]
+    for bad in (lambda: spans.find_once(text + "is it red?", "is it red?", "问题"),
+                lambda: spans.split_message("other\nx", "is it red?"),
+                lambda: spans.key_labels(len(pieces), 3, [5], q, c)):
+        try:
+            bad()
+            raise AssertionError("应当报错")
+        except spans.SpanCheckFailed:
+            pass
+    g = np.random.default_rng(0)
+    a = g.random((50, 16, 4)).astype(np.float32)
+    st = spans.compare_recorded(a, a + 1e-4)
+    assert st["median_abs_diff"] < 1e-3 and st["corr_token_mean"] > 0.999
+    assert st["corr_token_mean"] > max(st["corr_shift_minus1"], st["corr_shift_plus1"])
+
+
+def test_spans_requires_hf(tmp_path):
+    from symexp.fp import pipeline as fpp, spans
+    root = str(tmp_path / "r")
+    fpp.prepare(root, n=2, source="synthetic")
+    fpp.observe(Config.load(None, {"backend": "mock"}), root)
+    try:
+        spans.run(Config.load(None, {"backend": "mock"}), [root], str(tmp_path / "out" / "s.json"))
+        raise AssertionError("mock 后端应当拒绝")
+    except SystemExit:
+        pass
