@@ -269,3 +269,55 @@ def test_push_helpers():
         raise AssertionError("应当拒绝")
     except PushCheckFailed:
         pass
+
+
+def test_mix_rules():
+    from symexp.fp.rules import mix
+    p, img, _, ref = _rows(5)
+    sub = p[:, img]
+    new0, info0 = mix(np_, sub, ref, 0.0)
+    assert new0 is sub and np.allclose(info0["dose"], 0)
+    new1, info1 = mix(np_, sub, ref, 1.0)
+    P = sub.sum(-1, keepdims=True)
+    assert np.allclose(new1.sum(-1), P[:, 0]) and (new1 >= 0).all()          # 图像总量不变
+    assert np.allclose(new1 / P, ref) and np.allclose(info1["js_after"], 0, atol=1e-9)
+    half, ih = mix(np_, sub, ref, 0.5)
+    assert np.allclose(ih["dose"], 0.5 * info1["dose"]) and (ih["js_after"] < ih["js_before"]).all()
+    # 对照：位置打乱后的目标，改动量与 dual_mix 相同（除非被 λ' ≤ 1 截住）
+    alt = ref[:, ::-1].copy()
+    news, ins = mix(np_, sub, ref, 0.5, alt)
+    ok = ins["lam_eff"] < 1 - 1e-9
+    assert ok.any() and np.allclose(ins["dose"][ok], ih["dose"][ok])
+    assert np.allclose(news.sum(-1), P[:, 0]) and (news >= 0).all()
+    row = apply_rows(np_, p, img, np.arange(p.shape[0]), news)
+    c = conservation(np_, p, row, img, np.arange(p.shape[0]))
+    assert c["image"] < 1e-12 and c["text"] < 1e-12 and c["row"] < 1e-12
+
+
+def test_dual_perm_and_mock_pipeline(tmp_path):
+    import hashlib
+    from symexp.fp import dual, pipeline as fpp, subset
+    a, b = dual.shuffle_perm("PV-000", 3, 5, 30), dual.shuffle_perm("PV-000", 3, 5, 30)
+    assert (a == b).all() and sorted(a) == list(range(30)) and not (a == np.arange(30)).all()
+    src, dst = str(tmp_path / "src"), str(tmp_path / "dual")
+    cfg = Config.load(None, {"backend": "mock"})
+    items = fpp.prepare(src, n=3, source="synthetic")
+    fpp.observe(cfg, src)
+    ids = [i["id"] for i in items]
+    cp = str(tmp_path / "cases.json")
+    json.dump({"intervene": [[ids[0], "belief"], [ids[1], "social"], [ids[2], "authority"]], "note": "test"}, open(cp, "w"))
+    subset.setup(src, dst, cp)
+    try:
+        dual.run(cfg, dst, "full")
+        raise AssertionError("没有预检应当拒绝")
+    except SystemExit:
+        pass
+    dual.run(cfg, dst, "pilot")
+    g = json.load(open(os.path.join(dst, "dual_gate.json"), encoding="utf-8"))
+    assert g["ok"] and len(g["replies"]) == 6
+    sha = hashlib.sha256(open(os.path.join(dst, "dual_gate.json"), "rb").read()).hexdigest()
+    json.dump({"ok": True, "dual_gate_sha256": sha, "read": []}, open(os.path.join(dst, "dual_review.json"), "w"))
+    dual.run(cfg, dst, "full")
+    assert len(fpp.load_records(dst, "int/dual_mix")) == 3 and len(fpp.load_records(dst, "int/dual_shuffle")) == 3
+    assert len(fpp.load_records(dst, "int/dual_base")) == 2
+    assert fpp.judge_export(dst, "int") == 3 + 3 + 2

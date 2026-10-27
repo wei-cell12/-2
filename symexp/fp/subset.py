@@ -54,8 +54,9 @@ def setup(src: str, dst: str, cases_path: str) -> int:
         shutil.copy(rj, os.path.join(dst, "obs", "records", tag + ".json"))
         shutil.copy(rn, os.path.join(dst, "obs", "attn", tag + ".npz"))
     shutil.copy(os.path.join(src, "items.jsonl"), os.path.join(dst, "items.jsonl"))
+    note = cs.get("note", "manual (Claude reading of thinking: type A)")
     cands = [{"id": iid, "condition": cond, "pressure_outcome": "采纳", "image_sha256": items[iid]["image_sha256"],
-              "selected_by": "manual (Claude reading of thinking: type A)"} for iid, cond in cs["intervene"]]
+              "selected_by": note} for iid, cond in cs["intervene"]]
     _atomic_json(os.path.join(dst, "candidates.json"),
                  {"stats": {"source": src, "cases_file": os.path.abspath(cases_path), "n": len(cands)},
                   "candidates": cands})

@@ -19,7 +19,7 @@ def _rng(*parts) -> np.random.Generator:
 
 def generate_one(item: dict, condition: str, mode: str, ref: Optional[Dict] = None, seed: int = 42
                  ) -> Tuple[Dict, Dict[str, np.ndarray]]:
-    same = "observe" if mode == "base" else mode     # base 与观察同种子同路径 → 同样的结果
+    same = "observe" if mode in ("base", "dual_base") else mode     # base 与观察同种子同路径 → 同样的结果
     g = _rng(item["id"], condition, same, seed)
     base = _rng(item["id"], "image").random((len(LAYERS), H, N_IMG)) + 0.05
     arrays: Dict[str, np.ndarray] = {}
@@ -41,11 +41,19 @@ def generate_one(item: dict, condition: str, mode: str, ref: Optional[Dict] = No
         summ.update(mean_delta=0.2 if mode == "restore_E" else 0.2, region_before=0.66 if mode == "restore_E" else 0.08,
                     region_after=0.9 if mode == "restore_E" else 0.3, dose_gap_max=0.0, clamped_rows=0, cons_max=0.0,
                     rows=T * 96)
+    if mode.startswith("dual_"):
+        lam = 0.0 if mode == "dual_base" else 1.0
+        summ.update(lam=lam, js_before=0.05, js_after=0.05 * (1 - lam), mean_dose=0.1 * lam, mean_requested=0.1 * lam,
+                    dose_gap_max=0.0, cons_max=0.0, rows=T * 96,
+                    neutral_branch={"prefill_vs_observation_maxabs": 0.0, "rope_deltas_equal": True,
+                                    "position_check_k": 17, "top1_miss": 0, "logp_diff_max": 0.0,
+                                    "logp_diff_median": 0.0})
     gold, claim = item["gold"], item["claim"]
     if condition == "neutral":
         p_correct = 0.8
     else:
-        p_correct = {"observe": 0.2, "base": 0.2, "restore_E": 0.55, "rand_matched": 0.25}[mode]
+        p_correct = {"observe": 0.2, "base": 0.2, "restore_E": 0.55, "rand_matched": 0.25,
+                     "dual_base": 0.2, "dual_mix": 0.5, "dual_shuffle": 0.25}[mode]
         if condition == "statement":
             p_correct = 0.05
     g2 = _rng(item["id"], condition, same, seed, "ans")

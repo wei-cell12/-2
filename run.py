@@ -134,12 +134,15 @@ def main():
     fpu = sub.add_parser("fp-push", help="五压力：推力分析（重读已保存的记录，不生成）")
     fpu.add_argument("--cases", required=True, help="观测清单 JSON，见 docs/pathvqa_push10_cases.json")
     fpu.add_argument("--out", required=True)
-    for q in (fo, fi, fpu):
+    fdu = sub.add_parser("fp-dual", help="五压力：锚点一 v2（逐步参照，双分支同步），先 pilot，阅读确认后 full")
+    fdu.add_argument("--phase", choices=["pilot", "full"], required=True)
+    fdu.add_argument("--lam", type=float, default=1.0, help="混合系数 λ（默认 1：换成中性分支此刻的分布）")
+    for q in (fo, fi, fpu, fdu):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
         q.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE")
-    for q in (fx, fm, fc, fi, fa, fo, fpub, fpu):
+    for q in (fx, fm, fc, fi, fa, fo, fpub, fpu, fdu):
         q.add_argument("--root", required=True)
 
     a = ap.parse_args()
@@ -200,6 +203,9 @@ def main():
             fpp.candidates(a.root, a.criterion)
         elif a.cmd == "fp-intervene":
             fpp.intervene(Config.load(a.config, _overrides(a.set)), a.root, a.phase, a.arms, a.shard, a.seed)
+        elif a.cmd == "fp-dual":
+            from symexp.fp.dual import run as fp_dual
+            fp_dual(Config.load(a.config, _overrides(a.set)), a.root, a.phase, a.shard, a.seed, a.lam)
         elif a.cmd == "fp-push":
             from symexp.fp.push import run as fp_push
             fp_push(Config.load(a.config, _overrides(a.set)), a.root, a.cases, a.out)

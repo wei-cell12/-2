@@ -52,6 +52,51 @@ class XP:
     def full_like(self, x, v):
         return self.np.full_like(x, v) if self.lib == "numpy" else self.torch.full_like(x, v)
 
+    def abs(self, x):
+        return self.np.abs(x) if self.lib == "numpy" else x.abs()
+
+    def log(self, x):
+        return self.np.log(x) if self.lib == "numpy" else self.torch.log(x)
+
+
+def _js(xp: XP, a, b):
+    """每个头一个数：图像内部分布 a、b（[h, n]，各自和为 1）的 JS 散度（自然对数）。"""
+    eps = 1e-12
+    m = 0.5 * (a + b)
+    ka = xp.sum(a * (xp.log(xp.maximum(a, xp.full_like(a, eps))) - xp.log(xp.maximum(m, xp.full_like(m, eps)))))
+    kb = xp.sum(b * (xp.log(xp.maximum(b, xp.full_like(b, eps))) - xp.log(xp.maximum(m, xp.full_like(m, eps)))))
+    return 0.5 * (ka + kb)
+
+
+def mix(xp: XP, p_img, ref, lam: float, ref_alt=None) -> Tuple[object, Dict[str, object]]:
+    """v2：逐步参照的混合恢复。只改图像内部分布，图像总量、文字部分、整行总和都不变。
+
+      q  = p_img / P                     受压分支此刻的图像内部分布（P = 图像总量）
+      r  = 中性分支同一步、同一层、同一头的图像内部分布
+      q' = (1 − λ)·q + λ·r
+    ref_alt 不为空时是对照组：目标换成 ref_alt（r 的位置打乱），λ 按头调整为
+      λ' = min(1, λ · |q − r|₁ / |q − ref_alt|₁)，使改动的量（½|q' − q|₁）与用 r 时相同。
+    """
+    P = xp.sum(p_img)
+    q = p_img / xp.maximum(P, xp.full_like(P, xp.tiny()))
+    r = ref / xp.maximum(xp.sum(ref), xp.full_like(P, xp.tiny()))
+    d_r = 0.5 * xp.sum(xp.abs(q - r))
+    if ref_alt is None:
+        target = r
+        lam_eff = xp.full_like(d_r, lam)
+        want = lam * d_r
+    else:
+        target = ref_alt / xp.maximum(xp.sum(ref_alt), xp.full_like(P, xp.tiny()))
+        d_t = 0.5 * xp.sum(xp.abs(q - target))
+        want = lam * d_r
+        lam_eff = xp.minimum(xp.full_like(d_r, 1.0), want / xp.maximum(d_t, xp.full_like(d_t, xp.tiny())))
+    q_new = (1.0 - lam_eff) * q + lam_eff * target
+    new = p_img if lam == 0 else P * q_new
+    dose = 0.5 * xp.sum(xp.abs(q_new - q))
+    info = {"P": P[..., 0], "js_before": _js(xp, q, r)[..., 0], "js_after": _js(xp, q_new, r)[..., 0],
+            "dose": dose[..., 0], "requested": want[..., 0], "lam_eff": lam_eff[..., 0], "l1_q_r": d_r[..., 0]}
+    return new, info
+
 
 def restore(xp: XP, p_img, mask, ref, lam: float, floor: float) -> Tuple[object, Dict[str, object]]:
     m = xp.fl(mask)

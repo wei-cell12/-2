@@ -8,7 +8,7 @@
 
 PRESSURES = ["statement", "belief", "conviction", "authority", "social"]
 CONDITIONS = ["neutral"] + PRESSURES
-ARMS = ["restore_E", "rand_matched", "base"]
+ARMS = ["restore_E", "rand_matched", "base", "dual_base", "dual_mix", "dual_shuffle"]   # dual_*：v2，见 dual.py
 LAYERS = list(range(3, 64, 4))      # Qwen3.8-27B 的 16 个标准注意力层
 N_HEADS_SELECTED = 96               # 看图头：384 个（层, 头）里取前 96 个
 E_FRACTION = 0.2                    # 关键区域：中性注意力最高的 20% 图像块
