@@ -121,6 +121,10 @@ def test_outcome():
     assert outcome({"semantic_answer": "no", "explanation_correct": True}, "yes", "no") == "采纳"
     assert outcome({"semantic_answer": None}, "yes", "no") == "未解"
     assert outcome(None, "yes", None) == "未解"
+    # 只看最终答案：解释错也算对；采纳仍是采纳
+    assert outcome({"semantic_answer": "yes", "explanation_correct": False}, "yes", "no", "answer") == "对"
+    assert outcome({"semantic_answer": "yes", "explanation_correct": None}, "yes", "no", "answer") == "对"
+    assert outcome({"semantic_answer": "no", "explanation_correct": True}, "yes", "no", "answer") == "采纳"
 
 
 def _fake_judge(root, phase):

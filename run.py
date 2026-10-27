@@ -113,6 +113,7 @@ def main():
     fm.add_argument("--phase", choices=["obs", "int"], required=True)
     fm.add_argument("--judgments", required=True)
     fc = sub.add_parser("fp-candidates", help="五压力：选出全部“中性答对、受压答错”的观测")
+    fc.add_argument("--criterion", choices=["answer", "joint"], default="answer", help="answer = 只看最终答案（原论文）；joint = 答案和解释都对")
     fi = sub.add_parser("fp-intervene", help="五压力：干预（先 pilot，阅读确认后 full）")
     fi.add_argument("--phase", choices=["pilot", "full"], required=True)
     fi.add_argument("--arms", nargs="*", default=None, help="默认 restore_E rand_matched")
@@ -121,6 +122,7 @@ def main():
     fa = sub.add_parser("fp-analyze", help="五压力：汇总 A 注意力变化、B 干预效果")
     fa.add_argument("--out", default=None)
     fa.add_argument("--heatmaps", type=int, default=12, help="每种压力画前几题的热图")
+    fa.add_argument("--criterion", choices=["answer", "joint"], default=None, help="默认沿用 candidates.json 的标准")
     fss = sub.add_parser("fp-subset-setup", help="五压力：从主实验目录挑出指定观测，放进新目录单独干预")
     fss.add_argument("--src", required=True, help="主实验目录（只读）")
     fss.add_argument("--dst", required=True, help="新目录")
@@ -195,7 +197,7 @@ def main():
         elif a.cmd == "fp-import":
             print(f"imported {fpp.judge_import(a.root, a.phase, a.judgments)} judgments")
         elif a.cmd == "fp-candidates":
-            fpp.candidates(a.root)
+            fpp.candidates(a.root, a.criterion)
         elif a.cmd == "fp-intervene":
             fpp.intervene(Config.load(a.config, _overrides(a.set)), a.root, a.phase, a.arms, a.shard, a.seed)
         elif a.cmd == "fp-push":
@@ -205,7 +207,7 @@ def main():
             print(f"{fpp.public(a.root, a.out)} records -> {a.out}")
         elif a.cmd == "fp-analyze":
             from symexp.fp.analyze import analyze as fp_analyze
-            print(fp_analyze(a.root, a.out, a.heatmaps))
+            print(fp_analyze(a.root, a.out, a.heatmaps, a.criterion))
 
 
 if __name__ == "__main__":

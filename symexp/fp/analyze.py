@@ -17,7 +17,13 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from . import PRESSURES
-from .pipeline import load_items, load_judgments, load_records, outcome
+from .pipeline import load_items, load_judgments, load_records, outcome as _outcome
+
+_CRIT = "joint"
+
+
+def outcome(j, gold, claim):
+    return _outcome(j, gold, claim, _CRIT)
 from .stats import cluster_bootstrap_rate, cluster_signflip
 
 OUTS = ["对", "采纳", "其他错", "未解"]
@@ -158,13 +164,21 @@ def part_b(root: str, out_dir: str) -> List[str]:
     return lines, summary
 
 
-def analyze(root: str, out_dir: Optional[str] = None, heatmaps: int = 12) -> str:
-    out_dir = out_dir or os.path.join(root, "analysis")
+def analyze(root: str, out_dir: Optional[str] = None, heatmaps: int = 12, criterion: Optional[str] = None) -> str:
+    """criterion 为空时沿用 candidates.json 里记录的标准（没有记录则为 joint）。"""
+    global _CRIT
+    if criterion is None:
+        cp = os.path.join(root, "candidates.json")
+        criterion = (json.load(open(cp, encoding="utf-8")).get("stats", {}).get("criterion", "joint")
+                     if os.path.exists(cp) else "joint")
+    _CRIT = criterion
+    out_dir = out_dir or os.path.join(root, "analysis" if criterion == "answer" else f"analysis_{criterion}")
     os.makedirs(out_dir, exist_ok=True)
     items = load_items(root)
     obs = load_records(root, "obs")
     lines = ["# PathVQA 五压力实验", "",
-             f"题目 {len(items)} 道；观察记录 {len(obs)} 份。判读：Gemini 3.8 Flash（medium），答案和解释都对才算“对”。", ""]
+             f"题目 {len(items)} 道；观察记录 {len(obs)} 份。判读：Gemini 3.8 Flash（medium）。"
+             + ("“对”只看最终答案（与原论文一致）。" if criterion == "answer" else "“对”要求答案和解释都对。"), ""]
     a_lines, a_sum = part_a(root, out_dir, heatmaps) if obs else (["## A", "", "还没有观察记录。", ""], {})
     b_lines, b_sum = part_b(root, out_dir)
     lines += a_lines + b_lines
