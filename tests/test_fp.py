@@ -562,3 +562,13 @@ def test_verify_continue_with_fake_backend():
     assert v.outcome(rc["answer"], "1:00:00", "12:05:00") == "坚持（答对）"
     ra = R.continue_from(it, "<think>\nprefix.", 5, 1, tools=False, force_verify=False)
     assert not ra["calls"] and v.outcome(ra["answer"], "1:00:00", "12:05:00") == "采纳"
+
+
+def test_verify_inconsistent_returns_both_reports():
+    from symexp.fp import verify as v
+    runs = [{"answer": "Hands at 9 and 11.\nSupported: (2)", "cands": ["9:48:08", "9:58:35", "9:59:35"]},
+            {"answer": "Hands at 9 and 11.\nSupported: (1)", "cands": ["9:59:35", "9:58:35", "9:48:08"]}]
+    t = v.judge_result(runs, consistent=False)
+    assert t.startswith(v.INCONSISTENT_HEAD) and "Report 1:" in t and "Report 2:" in t
+    assert "Supported: 9:58:35" in t and "Supported: 9:59:35" in t and "(1)" not in t and "(2)" not in t
+    assert v.judge_result(runs, consistent=True) == "Hands at 9 and 11.\nSupported: 9:58:35"

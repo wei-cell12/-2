@@ -176,6 +176,7 @@ def main():
     fvf.add_argument("--threshold", type=float, default=-9.28, help="触发阈值（ClockQA、PathVQA 方向、误触发 20%%）")
     fvf.add_argument("--conds", nargs="*", default=["A", "B", "C"])
     fvf.add_argument("--samples", type=int, default=3)
+    fvf.add_argument("--only", nargs="*", default=None, help="只跑这些题（题号如 CQ-039，或清单里的 tag）")
     for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
@@ -254,7 +255,7 @@ def main():
         elif a.cmd == "fp-verify":
             from symexp.fp import verify as fp_verify
             fp_verify.run(Config.load(a.config, _overrides(a.set)), a.cq, a.work, a.cases, a.out, a.threshold, a.conds,
-                          a.samples, a.shard)
+                          a.samples, a.shard, a.only)
         elif a.cmd == "fp-conflict-setup":
             from symexp.fp import conflict as fp_conflict
             fp_conflict.pv_setup(a.pv_src, a.pv)
