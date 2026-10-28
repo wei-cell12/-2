@@ -679,3 +679,18 @@ def test_compare_a1_window():
     assert not cm.in_window(500, None) and cm.in_window(500, (480, 520)) and cm.in_window(520 + W - 1, (480, 520))
     assert not cm.in_window(520 + W, (480, 520)) and not cm.in_window(479, (480, 520))
     assert cm.ARMS["full"]["window"] and cm.ARMS["a1"]["window"] and not cm.ARMS["mmsy"].get("window")
+
+
+def test_compare_itsm_combine():
+    import numpy as np
+    from symexp.fp import compare as cm
+    lead = np.log(np.array([0.70, 0.20, 0.05, 0.05]))
+    neu = np.log(np.array([0.20, 0.70, 0.05, 0.05]))
+    out, a, j, b, k = cm.itsm_combine(np, lead, neu)
+    assert j > 0 and abs(a - (1 + j)) < 1e-9 and 0.1 <= b <= 0.2
+    assert np.argmax(out) == 1 and out[0] < out[1]                       # 压向中性分支偏好的 token
+    same, a0, j0, _, k0 = cm.itsm_combine(np, neu, neu)
+    assert abs(j0) < 1e-12 and abs(a0 - 1.0) < 1e-12
+    kept = np.isfinite(same)
+    assert np.allclose(same[kept] - same[kept].max(), neu[kept] - neu[kept].max())   # 两边相同时就是中性分布
+    assert cm.ARMS["itsm"]["system"] is None and not cm.ARMS["itsm"]["a2"]

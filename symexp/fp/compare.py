@@ -21,6 +21,12 @@
           窗口外直接用原注意力函数（不显式计算）。参照 = 同一题中性回答的前 A1_WINDOW 个 token 的看图分布
           （fp-compare 会先用种子 42 生成中性回答的前 A1_WINDOW 个 token 来得到它，存在 root/refs_prefix/）
   a1      只用锚点一（同样的窗口与参照）
+  itsm    ITSM（Zhao 等，arXiv 2408.11261）的谄媚感知对比解码：同一张图，中性提问（去掉用户那句话）与原提问
+          两条分支同步生成，每一步 logits = (1+α)·中性 − α·原提问，α = α0 + λα·JSD(原 ‖ 中性)；
+          再按中性分布做自适应可信度过滤：只保留 p_中性 ≥ β·max p_中性 的 token，β = β0 + μ·(1 − H/log|V|)。
+          论文没给超参数数值，这里取 VCD 的默认 α0 = 1、β0 = 0.1，λα = 1、μ = 0.1；
+          “中性化”直接用去掉用户那句话的原题（相当于理想的中性化器）；论文里的情感缩放项对所有 token 相同、
+          归一化后不起作用，不实现
   a2      只用锚点二（注意力显式计算但不修改，与原模型的观察阶段相同），系统提示 = 工具说明
   prompt  提示词 baseline（系统提示 PROMPT_SYSTEM），注意力不修改
   loop    原模型（只用于预检：应与已有的观察记录逐 token 一致）
@@ -56,9 +62,11 @@ ARMS = {
     "a1":     {"attn": "restore_E", "a2": False, "system": None, "window": True},
     "a2":     {"attn": "observe",   "a2": True,  "system": TOOL_SYSTEM},
     "prompt": {"attn": "observe",   "a2": False, "system": PROMPT_SYSTEM},
+    "itsm":   {"attn": "itsm",      "a2": False, "system": None},
     "loop":   {"attn": "observe",   "a2": False, "system": None},
 }
 TOL_BIN_MAX, TOL_BIN_CORR = 1.5, 0.95
+ITSM = {"alpha0": 1.0, "lambda_alpha": 1.0, "beta0": 0.1, "mu": 0.1}
 
 
 class CompareCheckFailed(RuntimeError):
@@ -229,6 +237,108 @@ class WindowedA1:
         return orig(module, query, key, value, attention_mask, *args, **kwargs)
 
 
+def itsm_combine(xp, lead_logits, neu_logits, hp: dict = ITSM):
+    """ITSM 的一步：返回 (新 logits, α, JSD, β, 保留的 token 数)。xp = torch（服务器）或 numpy（测试）。"""
+    def lsm(x):
+        m = x.max()
+        return x - (m + xp.log(xp.exp(x - m).sum()))
+    ll, ln = lsm(lead_logits), lsm(neu_logits)
+    pl, pn = xp.exp(ll), xp.exp(ln)
+    mid = 0.5 * (pl + pn)
+    lm = xp.log(xp.clip(mid, 1e-30, None)) if hasattr(xp, "clip") else xp.log(mid.clamp_min(1e-30))
+    kl = lambda p, lp: float((p * (lp - lm)).sum())
+    jsd = 0.5 * kl(pl, ll) + 0.5 * kl(pn, ln)
+    alpha = hp["alpha0"] + hp["lambda_alpha"] * jsd
+    ent = float(-(pn * ln).sum())
+    beta = hp["beta0"] + hp["mu"] * (1.0 - ent / float(np.log(pn.shape[-1])))
+    cd = (1.0 + alpha) * ln - alpha * ll
+    keep = pn >= beta * pn.max()
+    out = cd.clone() if hasattr(cd, "clone") else cd.copy()
+    out[~keep] = float("-inf")
+    return out, alpha, jsd, beta, int(keep.sum())
+
+
+class ITSMProcessor:
+    """logits 处理器：用中性分支同一步的 logits 做 ITSM。思考预算强制结束时不改。"""
+
+    def __init__(self, torch, neutral):
+        self.torch, self.neutral = torch, neutral
+        self.stats = {"steps": 0, "alpha": 0.0, "jsd": 0.0, "beta": 0.0, "kept": 0.0}
+
+    def __call__(self, input_ids, scores):
+        t = self.torch
+        if int((scores[0] > float("-inf")).sum()) <= 1:
+            return scores
+        nl = self.neutral.last
+        if nl is None or self.neutral.last_pos != int(input_ids.shape[-1]):
+            raise CompareCheckFailed("ITSM：中性分支没有这一步的 logits（两条分支没有同步）")
+        out, a, j, b, k = itsm_combine(t, scores[0].float(), nl.to(scores.device).float())
+        st = self.stats
+        st["steps"] += 1
+        st["alpha"] += a
+        st["jsd"] += j
+        st["beta"] += b
+        st["kept"] += k
+        return out[None].to(scores.dtype)
+
+    def summary(self) -> dict:
+        n = max(self.stats["steps"], 1)
+        return {"hyper": ITSM, "steps": self.stats["steps"], "alpha_mean": self.stats["alpha"] / n,
+                "jsd_mean": self.stats["jsd"] / n, "beta_mean": self.stats["beta"] / n, "kept_mean": self.stats["kept"] / n}
+
+
+def _itsm_classes():
+    from .controller import FPController
+    from .dual import NeutralBranch
+
+    class ITSMNeutral(NeutralBranch):
+        """中性分支：每一步都留下最新的 logits（last），并记下它对应的序列长度（last_pos）。"""
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.last, self.last_pos, self._pos = None, None, None
+
+        def _keep(self, logits):
+            super()._keep(logits)
+            self.last = logits[0, -1].float()
+            self.last_pos = self._pos
+
+    class ITSMController(FPController):
+        """受压分支按观察模式运行（显式注意力、不修改）；每次受压 forward 之前让中性分支前进一步。"""
+
+        def __init__(self, torch, image_idx, close_id, max_rows):
+            super().__init__(torch, "observe", image_idx, close_id, lam=0.0, max_rows=max_rows)
+            self.branch, self.neutral, self.probe = "pressure", None, None
+
+        def pre_hook(self, module, args, kwargs):
+            if self.branch == "neutral":
+                return
+            ids = kwargs.get("input_ids", args[0] if args else None)
+            first = not (ids is not None and ids.shape[-1] == 1 and self.prefill_calls > 0)
+            super().pre_hook(module, args, kwargs)
+            if self.probe is not None:
+                self.probe.paused = True
+            try:
+                if first:
+                    self.neutral._pos = int(ids.shape[-1])
+                    self.neutral.prefill(self, kwargs)
+                else:
+                    if self.step == 0:
+                        self.neutral.check_rope(self)
+                    self.neutral._pos = self.neutral.n_in + self.neutral.offset + self.step + 1
+                    self.neutral.step(self, kwargs, int(ids[0, -1]))
+            finally:
+                if self.probe is not None:
+                    self.probe.paused = False
+
+        def attention(self, orig, module, query, key, value, attention_mask, *args, **kwargs):
+            if self.branch == "neutral":
+                return orig(module, query, key, value, attention_mask, *args, **kwargs)
+            return super().attention(orig, module, query, key, value, attention_mask, *args, **kwargs)
+
+    return ITSMNeutral, ITSMController
+
+
 # ---------------------------------------------------------------- GPU：MM-SY 注意力
 class MMSYController:
     def __init__(self, torch, image_idx, lam: float = MMSY_LAMBDA, layers=MMSY_LAYERS, selfcheck_steps: int = 3,
@@ -364,8 +474,19 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
     eos = gc.eos_token_id if isinstance(gc.eos_token_id, list) else [gc.eos_token_id]
     tb, ab = cfg.think_budget, cfg.answer_budget
     budget = make_budget(tf, torch, n_in, backend.close_id, int(eos[0]), tb, ab)
+    itsm = None
     if spec["attn"] == "mmsy":
         ctrl = MMSYController(torch, img_idx)
+    elif spec["attn"] == "itsm":
+        from .generate import build_inputs
+        ITSMNeutral, ITSMController = _itsm_classes()
+        _, ninp = build_inputs(backend, item["image"], item["messages"]["neutral"])
+        nb = {k: v.to(dev) for k, v in ninp.items()}
+        if "pixel_values" in nb:
+            nb["pixel_values"] = nb["pixel_values"].to(model.dtype)
+        ctrl = ITSMController(torch, img_idx, backend.close_id, max_rows=tb + ab + 2)
+        ctrl.neutral = ITSMNeutral(backend, nb, int(ninp["input_ids"].shape[1]), None)
+        itsm = ITSMProcessor(torch, ctrl.neutral)
     else:
         ctrl = FPController(torch, spec["attn"], img_idx, backend.close_id,
                             ref=ref if spec["attn"] == "restore_E" else None,
@@ -401,6 +522,8 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
 
     orch = Orchestrator(torch, tok, n_in, backend.close_id, lambda: probe.rows, judge_fn, thr, spec["a2"])
     act = WindowedA1(ctrl, lambda: orch.result_span) if spec.get("window") else ctrl
+    if itsm is not None:
+        ctrl.probe = probe
     _, layer_mod = decoder_layer(model, CONFLICT_LAYER - 1)
     h1 = model.register_forward_pre_hook(pre, with_kwargs=True)
     h2 = layer_mod.register_forward_hook(probe.hook) if u_np is not None else None
@@ -416,13 +539,16 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
             out = model.generate(**batch, do_sample=True, temperature=cfg.temperature, top_p=cfg.top_p,
                                  top_k=cfg.top_k, min_p=cfg.min_p, repetition_penalty=cfg.repetition_penalty,
                                  max_new_tokens=max_new or (tb + ab + 2), use_cache=True,
-                                 logits_processor=tf.LogitsProcessorList([budget, orch]))
+                                 logits_processor=tf.LogitsProcessorList([budget, orch] + ([itsm] if itsm else [])))
     finally:
         h1.remove()
         if h2 is not None:
             h2.remove()
     seconds = time.time() - t0
     output = out[0, n_in:].tolist()
+    if itsm is not None:
+        with torch.inference_mode():
+            ctrl.neutral.verify_positions(output)               # 中性分支逐步与整段计算一致（位置编码、缓存）
     close = output.index(backend.close_id) if backend.close_id in output else None
     raw = tok.decode(output, skip_special_tokens=False, clean_up_tokenization_spaces=False)
     thinking = tok.decode(output[:close], skip_special_tokens=True).strip() if close is not None else \
@@ -449,6 +575,7 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
             "a1_window": ({"width": A1_WINDOW, "steps_in": act.steps_in, "steps_out": act.steps_out,
                            "result_span": orch.result_span} if spec.get("window") else None),
             "conflict_rows": [round(x, 3) for x in rows], "conflict_bins": bins, "anchor2": orch.report(),
+            "itsm": (dict(itsm.summary(), neutral_branch=ctrl.neutral.report) if itsm else None),
             "_arrays": arrays if want_arrays else None}
 
 
@@ -552,8 +679,11 @@ def _log(r, k, n, reused=False):
           file=sys.stderr)
 
 
-def run_gate(cfg, cq: str, work: str, root: str, thr: float = THRESHOLD, seed: int = 42) -> dict:
-    """预检：原模型（loop）2 题要能复现已有观察记录；在线冲突分数要与整段重算一致；full、mmsy 各跑 1 题不报错。"""
+def run_gate(cfg, cq: str, work: str, root: str, thr: float = THRESHOLD, seed: int = 42,
+             arms: Optional[List[str]] = None) -> dict:
+    """预检：原模型（loop）2 题要能复现已有观察记录；在线冲突分数要与整段重算一致；要跑的每个方法各跑 1 题不报错。
+    可以多次运行（已有的生成会复用）；通过的方法累计记在 compare_gate.json 的 arms_ok 里。"""
+    arms = arms or ["mmsy", "full", "itsm"]
     from .conflict import _engine, _hidden, _items, bin_means
     from .pipeline import _atomic_json, _check_no_failure, _fail
     _check_no_failure(root)
@@ -584,27 +714,35 @@ def run_gate(cfg, cq: str, work: str, root: str, thr: float = THRESHOLD, seed: i
                          "row_corr": corr, "row_corr_shifted": sh, "conflict_check_ok": good, "top20": top})
             print(f"[gate] {iid}：与观察逐 token 一致={same}；在线/整段冲突分数 每格最大差 {dmax:.3f} 相关 {corr:.4f}"
                   f"（错位 {sh:.4f}）", file=sys.stderr)
-        for arm in ("full", "mmsy"):
+        for arm in arms:
             r, reused = _one(eng, cq, root, items, arm, ids[0], "belief", u, thr, seed)
             _log(r, 1, 1, reused)
             good = bool(r["answer"].strip()) and "�" not in r["raw_output"]
             if arm == "mmsy":
                 good = good and (r["controller"].get("selfcheck_ratio_max") or 0) <= 1.0
+            if arm == "itsm":
+                good = good and (r.get("itsm") or {}).get("steps", 0) > 0
             ok = ok and good
             rows.append({"id": ids[0], "arm": arm, "ok": good, "outcome": r["outcome"],
                          "trigger": (r["anchor2"] or {}).get("trigger"), "controller": r["controller"],
                          "a1_window": r.get("a1_window")})
         pj = os.path.join(root, "refs_prefix", f"{ids[0]}.json")
-        pref = json.load(open(pj, encoding="utf-8"))
-        rows.append({"id": ids[0], "prefix_reference": pref, "same_tokens_as_observation": pref["same_tokens_as_neutral_record"]})
-        print(f"[gate] {ids[0]} 前缀参照：{pref['tokens']} 个 token，与中性记录逐 token 一致={pref['same_tokens_as_neutral_record']}，"
-              f"{pref['seconds']}s", file=sys.stderr)
+        if os.path.exists(pj):
+            pref = json.load(open(pj, encoding="utf-8"))
+            rows.append({"id": ids[0], "prefix_reference": pref,
+                         "same_tokens_as_observation": pref["same_tokens_as_neutral_record"]})
+            print(f"[gate] {ids[0]} 前缀参照：{pref['tokens']} 个 token，与中性记录逐 token 一致="
+                  f"{pref['same_tokens_as_neutral_record']}，{pref['seconds']}s", file=sys.stderr)
     except BaseException as e:
         _fail(root, "gate", e)
         raise
-    g = {"ok": ok, "deterministic": all(x.get("same_tokens_as_observation", True) for x in rows), "rows": rows}
-    _atomic_json(os.path.join(root, "compare_gate.json"), g)
-    print(f"[gate] ok={ok} deterministic={g['deterministic']} → {root}/compare_gate.json", file=sys.stderr)
+    gp = os.path.join(root, "compare_gate.json")
+    prev = json.load(open(gp, encoding="utf-8")) if os.path.exists(gp) else {}
+    arms_ok = sorted(set(prev.get("arms_ok", [])) | (set(arms) if ok else set()))
+    g = {"ok": ok, "deterministic": all(x.get("same_tokens_as_observation", True) for x in rows), "arms": arms,
+         "arms_ok": arms_ok, "rows": rows, "previous": prev or None}
+    _atomic_json(gp, g)
+    print(f"[gate] ok={ok} deterministic={g['deterministic']} 已通过预检的方法={arms_ok} → {gp}", file=sys.stderr)
     return g
 
 
@@ -614,8 +752,10 @@ def run_arms(cfg, cq: str, work: str, root: str, arms: List[str], conds: List[st
     from .pipeline import _check_no_failure, _fail, _shard
     _check_no_failure(root)
     gp = os.path.join(root, "compare_gate.json")
-    if not (os.path.exists(gp) and json.load(open(gp))["ok"]):
-        raise SystemExit("预检没有通过（compare_gate.json），不能正式运行")
+    passed = json.load(open(gp)).get("arms_ok", []) if os.path.exists(gp) else []
+    missing = [a for a in arms if a not in passed]
+    if missing:
+        raise SystemExit(f"这些方法还没有通过预检（compare_gate.json 的 arms_ok）：{missing}；先运行 --phase gate --arms {' '.join(missing)}")
     bad = [a for a in arms if a not in ARMS or a == "loop"]
     if bad:
         raise SystemExit(f"未知的方法：{bad}；可选 {[a for a in ARMS if a != 'loop']}")

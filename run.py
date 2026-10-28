@@ -182,7 +182,8 @@ def main():
     fcm.add_argument("--cq", required=True, help="ClockQA 目录（fp-conflict-setup 建的；读题目、中性与原模型记录、中性注意力）")
     fcm.add_argument("--work", default=None, help="冲突方向的工作目录（读 directions.npz）；gate、run 需要")
     fcm.add_argument("--root", required=True, help="对比实验的新目录（结果存这里）")
-    fcm.add_argument("--arms", nargs="*", default=["mmsy", "full"], help="run：跑哪些方法（mmsy full a1 a2 prompt）")
+    fcm.add_argument("--arms", nargs="*", default=["mmsy", "full", "itsm"],
+                     help="gate / run：哪些方法（mmsy full itsm a1 a2 prompt）")
     fcm.add_argument("--conds", nargs="*", default=["belief", "belief_right"])
     fcm.add_argument("--threshold", type=float, default=-9.28)
     fcm.add_argument("--out", default=None, help="summary：输出 JSON")
@@ -270,7 +271,7 @@ def main():
                     raise SystemExit("--phase gate / run 需要 --work")
                 c = Config.load(a.config, _overrides(a.set))
                 if a.phase == "gate":
-                    fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed)
+                    fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed, a.arms)
                 else:
                     fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed)
         elif a.cmd == "fp-verify":
