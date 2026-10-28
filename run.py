@@ -148,7 +148,13 @@ def main():
     fsp.add_argument("--roots", nargs="+", required=True, help="一个或多个实验目录（只读）")
     fsp.add_argument("--subs", default="obs,int", help="读哪些记录：obs、int 或 obs,int")
     fsp.add_argument("--out", required=True)
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp):
+    fhd = sub.add_parser("fp-hidden", help="五压力：犹豫方向（隐藏状态，留一题求方向并投影），forward 用 GPU、analyze 用 CPU")
+    fhd.add_argument("--phase", required=True, choices=["forward", "analyze"])
+    fhd.add_argument("--roots", nargs="*", default=[], help="forward：一个或多个实验目录（只读）")
+    fhd.add_argument("--subs", default="obs,int", help="forward：读哪些记录：obs、int 或 obs,int")
+    fhd.add_argument("--work", required=True, help="工作目录（隐藏状态存在 work/hidden/，不上传）")
+    fhd.add_argument("--out", default=None, help="analyze：输出 JSON")
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -223,6 +229,16 @@ def main():
         elif a.cmd == "fp-entropy":
             from symexp.fp.entropy import run as fp_entropy
             fp_entropy(Config.load(a.config, _overrides(a.set)), a.root, a.out)
+        elif a.cmd == "fp-hidden":
+            from symexp.fp import hidden as fp_hidden
+            if a.phase == "forward":
+                if not a.roots:
+                    raise SystemExit("--phase forward 需要 --roots")
+                fp_hidden.run_forward(Config.load(a.config, _overrides(a.set)), a.roots, a.work, a.subs.split(","), a.shard)
+            else:
+                if not a.out:
+                    raise SystemExit("--phase analyze 需要 --out")
+                fp_hidden.run_analyze(a.work, a.out)
         elif a.cmd == "fp-spans":
             from symexp.fp.spans import run as fp_spans
             fp_spans(Config.load(a.config, _overrides(a.set)), a.roots, a.out, a.subs.split(","), a.shard)

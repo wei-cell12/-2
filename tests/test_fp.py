@@ -394,3 +394,47 @@ def test_spans_requires_hf(tmp_path):
         raise AssertionError("mock 后端应当拒绝")
     except SystemExit:
         pass
+
+
+def test_hidden_positions_and_folds():
+    import numpy as np
+    from symexp.fp import hidden
+    pieces = ["The", " cells", " look", " wavy", ".", " But", " the", " user", " says", " no", ".", " Hmm", ".",
+              " So", " it", " is", ",", " however", ",", " unclear", ".", "</think>"]
+    H, C = hidden.positions(pieces, 21)
+    assert H == [5, 11, 17] and C == [13]
+    assert hidden.layer_ids(64) == [8, 16, 24, 32, 40, 48, 56, 64]
+    g = np.random.default_rng(0)
+    d, L = 6, 2
+    u_true = np.zeros((L, d)); u_true[:, 0] = 1
+    sums, counts = {}, {}
+    for q in ("A", "B", "C"):
+        Hx = g.normal(size=(30, L, d)) + 3 * u_true
+        Cx = g.normal(size=(30, L, d))
+        sums[q] = {"H": Hx.sum(0), "C": Cx.sum(0), "all": np.concatenate([Hx, Cx]).sum(0)}
+        counts[q] = {"H": 30, "C": 30, "all": 60}
+    f, n = hidden.fold_directions(sums, counts, "A")
+    assert n["H"] == 60 and (f["vs_sent"][0][:, 0] > 0.9).all() and np.allclose(np.linalg.norm(f["vs_all"][0], axis=-1), 1)
+    counts["B"]["H"] = counts["C"]["H"] = 5
+    try:
+        hidden.fold_directions(sums, counts, "A")
+        raise AssertionError("位置太少应当报错")
+    except hidden.HiddenCheckFailed:
+        pass
+
+
+def test_hidden_requires_hf(tmp_path):
+    from symexp.fp import hidden, pipeline as fpp
+    root = str(tmp_path / "r")
+    fpp.prepare(root, n=1, source="synthetic")
+    fpp.observe(Config.load(None, {"backend": "mock"}), root)
+    try:
+        hidden.run_forward(Config.load(None, {"backend": "mock"}), [root], str(tmp_path / "w"))
+        raise AssertionError("mock 后端应当拒绝")
+    except SystemExit:
+        pass
+    try:
+        hidden.run_analyze(str(tmp_path / "w2"), str(tmp_path / "o.json"))
+        raise AssertionError("没有结果应当报错")
+    except SystemExit:
+        pass
