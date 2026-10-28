@@ -164,7 +164,7 @@ def main():
     fcf.add_argument("--phase", required=True, choices=["pairs", "directions", "project"])
     fcf.add_argument("--pv-src", required=True)
     fcf.add_argument("--pv", required=True)
-    fcf.add_argument("--cq", required=True)
+    fcf.add_argument("--cq", default=None, help="ClockQA 目录；不给就只做 PathVQA（ClockQA 生成完后再加上它重跑三步）")
     fcf.add_argument("--work", required=True, help="工作目录（配对差、方向存在这里，不上传）")
     fcf.add_argument("--out", default=None, help="project：输出 JSON")
     for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf):

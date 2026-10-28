@@ -128,7 +128,7 @@ def pair_sign(ds: str, item: dict, neutral_answer: Optional[str]) -> int:
     return 1 if w else -1
 
 
-def neutral_answers(pv_src: str, cq: str) -> Dict[Tuple[str, str], Optional[str]]:
+def neutral_answers(pv_src: str, cq: Optional[str]) -> Dict[Tuple[str, str], Optional[str]]:
     from .pipeline import load_records
     out = {}
     jp = os.path.join(pv_src, "obs", "judge", "judgments.json")
@@ -139,7 +139,7 @@ def neutral_answers(pv_src: str, cq: str) -> Dict[Tuple[str, str], Optional[str]
         sub, iid, cond = k.split("|")
         if sub == "obs" and cond == "neutral":
             out[("pv", iid)] = v.get("semantic_answer")
-    for r in load_records(cq, "obs"):
+    for r in (load_records(cq, "obs") if cq else []):
         if r["condition"] == "neutral":
             out[("cq", r["id"])] = clock_pred(r["answer"])
     return out
@@ -274,23 +274,24 @@ def _items(root: str) -> Dict[str, dict]:
     return {i["id"]: i for i in load_items(root)}
 
 
-def pair_trajs(pv_src: str, pv: str, cq: str) -> List[dict]:
+def pair_trajs(pv_src: str, pv: str, cq: Optional[str]) -> List[dict]:
+    """cq 为 None 时只用 PathVQA。"""
     out = []
     for iid in sorted(_items(pv)):
         out.append({"ds": "pv", "id": iid, "rec": os.path.join(pv_src, "obs", "records", f"{iid}__{WRONG}.json"), "own": WRONG})
         out.append({"ds": "pv", "id": iid, "rec": os.path.join(pv, "obs", "records", f"{iid}__{RIGHT}.json"), "own": RIGHT})
-    for iid in sorted(_items(cq)):
+    for iid in (sorted(_items(cq)) if cq else []):
         for c in (WRONG, RIGHT):
             out.append({"ds": "cq", "id": iid, "rec": os.path.join(cq, "obs", "records", f"{iid}__{c}.json"), "own": c})
     return out
 
 
-def eval_trajs(pv_src: str, pv: str, cq: str) -> List[dict]:
+def eval_trajs(pv_src: str, pv: str, cq: Optional[str]) -> List[dict]:
     out = pair_trajs(pv_src, pv, cq)
     for iid in sorted(_items(pv)):
         for c in ["neutral"] + OTHER_PRESSURES:
             out.append({"ds": "pv", "id": iid, "rec": os.path.join(pv_src, "obs", "records", f"{iid}__{c}.json"), "own": c})
-    for iid in sorted(_items(cq)):
+    for iid in (sorted(_items(cq)) if cq else []):
         out.append({"ds": "cq", "id": iid, "rec": os.path.join(cq, "obs", "records", f"{iid}__neutral.json"), "own": "neutral"})
     return out
 
@@ -355,7 +356,7 @@ def _load_rec(t: dict) -> dict:
 def run_pairs(cfg, pv_src: str, pv: str, cq: str, work: str, shard: str = "") -> int:
     from .pipeline import _atomic_json, _check_no_failure, _fail, _shard
     _check_no_failure(work)
-    items = {"pv": _items(pv), "cq": _items(cq)}
+    items = {"pv": _items(pv), "cq": _items(cq) if cq else {}}
     pd = os.path.join(work, "pairs")
     os.makedirs(pd, exist_ok=True)
     todo = [t for t in _shard(pair_trajs(pv_src, pv, cq), shard) if not os.path.exists(os.path.join(pd, _tag(t) + ".json"))]
@@ -395,7 +396,7 @@ def run_pairs(cfg, pv_src: str, pv: str, cq: str, work: str, shard: str = "") ->
 def run_directions(pv_src: str, pv: str, cq: str, work: str) -> dict:
     from .pipeline import _atomic_json, _check_no_failure
     _check_no_failure(work)
-    items = {"pv": _items(pv), "cq": _items(cq)}
+    items = {"pv": _items(pv), "cq": _items(cq) if cq else {}}
     na = neutral_answers(pv_src, cq)
     diffs, rows = [], []
     for t in pair_trajs(pv_src, pv, cq):
@@ -407,7 +408,7 @@ def run_directions(pv_src: str, pv: str, cq: str, work: str) -> dict:
         rows.append({"ds": t["ds"], "id": t["id"], "own": t["own"], "sign": s, "neutral_answer": na.get((t["ds"], t["id"]))})
     D = directions(diffs)
     L = json.load(open(os.path.join(work, "pairs", _tag(pair_trajs(pv_src, pv, cq)[0]) + ".json")))["layers"]
-    cos_pv_cq = [round(float(x), 4) for x in (D["full"]["pv"] * D["full"]["cq"]).sum(-1)]
+    cos_pv_cq = [round(float(x), 4) for x in (D["full"]["pv"] * D["full"]["cq"]).sum(-1)] if len(D["full"]) == 2 else None
     stab = {}
     for ds in D["full"]:
         cs = [(D["loqo"][k] * D["full"][ds]).sum(-1) for k in D["loqo"] if k[0] == ds]
@@ -430,7 +431,7 @@ def run_project(cfg, pv_src: str, pv: str, cq: str, work: str, out_path: str, sh
     if not os.path.exists(dp):
         raise ConflictCheckFailed(f"{dp} 不存在，请先完成 --phase directions")
     Z = np.load(dp)
-    items = {"pv": _items(pv), "cq": _items(cq)}
+    items = {"pv": _items(pv), "cq": _items(cq) if cq else {}}
     na = neutral_answers(pv_src, cq)
     todo = _shard(eval_trajs(pv_src, pv, cq), shard)
     eng = _engine(cfg)
@@ -448,7 +449,9 @@ def run_project(cfg, pv_src: str, pv: str, cq: str, work: str, out_path: str, sh
             n = min(close, WINDOW)
             H, L, top = _hidden(eng.backend, it, t["own"], out_ids, n, rec)
             other = "cq" if t["ds"] == "pv" else "pv"
-            U = {"loqo": Z[f"loqo__{t['ds']}__{t['id']}"], "cross": Z[f"full__{other}"]}
+            U = {"loqo": Z[f"loqo__{t['ds']}__{t['id']}"]}
+            if f"full__{other}" in Z.files:
+                U["cross"] = Z[f"full__{other}"]                                       # 另一个数据集的方向（有才算）
             row = dict(t, rec=os.path.relpath(t["rec"]), n=n, close=close, layers=L, top20=top,
                        conflict=conflict_of(t["ds"], it, t["own"], na.get((t["ds"], t["id"]))),
                        neutral_answer=na.get((t["ds"], t["id"])), claim=claim_of(it, t["own"]), gold=it["gold"],
