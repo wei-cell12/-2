@@ -161,7 +161,8 @@ def main():
     fcs.add_argument("--cq", required=True, help="ClockQA 新目录")
     fcs.add_argument("--image-dirs", nargs="*", default=[], help="ClockQA 图像所在目录（从原始记录找不到图像时才用）")
     fcf = sub.add_parser("fp-conflict", help="五压力：冲突方向（pairs / project 用 GPU，directions 用 CPU）")
-    fcf.add_argument("--phase", required=True, choices=["pairs", "directions", "project"])
+    fcf.add_argument("--phase", required=True, choices=["pairs", "directions", "project", "external"])
+    fcf.add_argument("--external", default=None, help="external：外部轨迹 JSONL")
     fcf.add_argument("--pv-src", required=True)
     fcf.add_argument("--pv", required=True)
     fcf.add_argument("--cq", default=None, help="ClockQA 目录；不给就只做 PathVQA（ClockQA 生成完后再加上它重跑三步）")
@@ -252,6 +253,10 @@ def main():
                 fp_conflict.run_pairs(Config.load(a.config, _overrides(a.set)), a.pv_src, a.pv, a.cq, a.work, a.shard)
             elif a.phase == "directions":
                 fp_conflict.run_directions(a.pv_src, a.pv, a.cq, a.work)
+            elif a.phase == "external":
+                if not (a.external and a.out and a.cq):
+                    raise SystemExit("--phase external 需要 --external、--out 和 --cq")
+                fp_conflict.run_external(Config.load(a.config, _overrides(a.set)), a.cq, a.work, a.external, a.out, a.shard)
             else:
                 if not a.out:
                     raise SystemExit("--phase project 需要 --out")

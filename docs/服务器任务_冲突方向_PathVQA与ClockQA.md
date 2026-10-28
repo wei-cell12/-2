@@ -95,3 +95,22 @@ cp $W/directions_summary.json $W/conflict_proj*.json $W/*.log $D/
 3. 第 3 步：是否全部通过；`top20` 的最小值。
 4. 第 4 步：日志最后一行，包括各数据集可用条数、PathVQA 与 ClockQA 方向的逐层余弦。
 5. 第 5 步：一共多少条，是否全部通过。
+
+## 补充：给 ClockQA 以前实验的轨迹打冲突分数（GPU，不生成）
+
+`results/conflict_direction_20261028/external_cq_trajs.jsonl` 里是 ClockQA 以前实验留下的 591 条思考文字，这些实验都不是本次生成的：
+- 原始观察：中性加 5 种压力，共 372 条；
+- 锚点一干预：restore_E 99 条、restore_rand 99 条、base 21 条。
+
+做法：每条重新切成 token，在原来的受压提示下前向一次，投影到第 4 步求出的方向上。需要先完成两个数据集一起的第 4 步，即 `$W/directions.npz` 里要同时有 PathVQA 和 ClockQA。
+
+```bash
+X=<仓库>/results/conflict_direction_20261028/external_cq_trajs.jsonl
+CUDA_VISIBLE_DEVICES=<卡号> python run.py fp-conflict --phase external --config $C --pv-src $R --pv $PV --cq $CQ --work $W --external $X --out $W/external_proj.json 2>&1 | tee $W/external.log
+```
+
+多张卡时：
+- 加 `--shard k/n`；
+- `--out` 改成 `$W/external_proj_k.json`，日志写 `external_k.log`。
+
+上传：`cp $W/external_proj*.json $W/external*.log <仓库>/results/conflict_direction_20261028/`。

@@ -508,3 +508,12 @@ def test_conflict_setup(tmp_path):
         raise AssertionError("缺轨迹或 mock 后端应当报错")
     except (SystemExit, cf.ConflictCheckFailed):
         pass
+
+
+def test_conflict_external_requires_directions(tmp_path):
+    from symexp.fp import conflict as cf
+    try:
+        cf.run_external(Config.load(None, {"backend": "mock"}), str(tmp_path / "cq"), str(tmp_path / "w"), str(tmp_path / "x.jsonl"), str(tmp_path / "o.json"))
+        raise AssertionError("没有方向文件应当报错")
+    except cf.ConflictCheckFailed:
+        pass

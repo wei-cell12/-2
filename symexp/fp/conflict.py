@@ -23,6 +23,9 @@
   pairs       （GPU）每条 belief / belief_right 轨迹前向两次，存配对差（work/pairs/，不上传）
   directions  （CPU）按数据集求方向：留一题（用于本数据集的检验）+ 全部（用于另一数据集的检验）；
               写 directions_summary.json（可上传；方向本身存 work/directions.npz，不上传）
+  external    （GPU）给“外部轨迹”打分：ClockQA 以前的实验（原始观察、锚点一干预 restore_E / restore_rand / base）
+              留下的思考文字，重新切成 token，在原来的受压提示下前向一次，投影到 PathVQA 全部方向、ClockQA 全部方向
+              和 ClockQA 留一题方向上，写 JSON（可上传）。只读文字，不检查 logits 名次（干预轨迹不是由未修改的模型写出的）。
   project     （GPU）所有检验轨迹（两种 belief 条件、中性、PathVQA 其他 4 种压力）只用自己生成时的提示前向一次，
               投影到“本数据集留一题方向”和“另一数据集方向”，每 32 个 token 一格取平均，写 conflict_proj.json（可上传）
 
@@ -471,4 +474,59 @@ def run_project(cfg, pv_src: str, pv: str, cq: str, work: str, out_path: str, sh
     out = {"note": __doc__.split("\n\n")[0], "window": WINDOW, "bin": BIN, "shard": shard, "rows": res}
     _atomic_json(out_path, out)
     print(f"[fp-conflict project] {len(res)} 条 → {out_path}", file=sys.stderr)
+    return out
+
+
+def run_external(cfg, cq: str, work: str, external: str, out_path: str, shard: str = "") -> dict:
+    """external：每行 {tag, qid, ptype, method, gold, claim, thinking, …}（仓库 results/conflict_direction_20261028/external_cq_trajs.jsonl）。"""
+    from .pipeline import _atomic_json, _check_no_failure, _fail, _shard
+    from .generate import build_inputs
+    _check_no_failure(work)
+    dp = os.path.join(work, "directions.npz")
+    if not os.path.exists(dp):
+        raise ConflictCheckFailed(f"{dp} 不存在，请先完成 --phase directions（两个数据集）")
+    Z = np.load(dp)
+    for k in ("full__pv", "full__cq"):
+        if k not in Z.files:
+            raise ConflictCheckFailed(f"{dp} 里没有 {k}；需要两个数据集一起求方向")
+    items = _items(cq)
+    lines = [json.loads(l) for l in open(external, encoding="utf-8") if l.strip()]
+    todo = _shard(lines, shard)
+    eng = _engine(cfg)
+    torch, tok = eng.backend.torch, eng.backend.tokenizer
+    res = []
+    for k, t in enumerate(todo):
+        try:
+            it = items.get(t["qid"])
+            if it is None:
+                raise ConflictCheckFailed(f"{t['tag']}：{t['qid']} 不在 {cq}/items.jsonl 里")
+            if t["gold"] != it["gold"] or (t["ptype"] != "neutral" and t["claim"] != it["claim"]):
+                raise ConflictCheckFailed(f"{t['tag']}：正确答案或主张与 {cq} 里的题目不一致")
+            _, inp = build_inputs(eng.backend, it["image"], it["messages"][t["ptype"]])
+            out_ids = tok(t["thinking"], add_special_tokens=False)["input_ids"]
+            n = min(len(out_ids), WINDOW)
+            if n == 0:
+                raise ConflictCheckFailed(f"{t['tag']}：思考段为空")
+            fake = {"id": t["tag"], "input_ids": inp["input_ids"][0].tolist(), "mode": "external"}
+            H, L, top = _hidden(eng.backend, it, t["ptype"], out_ids, n, fake)
+            U = {"pv": Z["full__pv"], "cq_full": Z["full__cq"]}
+            if f"loqo__cq__{t['qid']}" in Z.files:
+                U["cq_loqo"] = Z[f"loqo__cq__{t['qid']}"]
+            row = {k2: t.get(k2) for k2 in ("tag", "qid", "ptype", "method", "set", "gold", "claim")}
+            row.update(n=n, n_think_tokens=len(out_ids), layers=L, top20=top)
+            for name, u in U.items():
+                pr = torch.einsum("tld,ld->lt", H, torch.as_tensor(u, dtype=torch.float32, device=H.device)).cpu().numpy()
+                row["bins_" + name] = [bin_means(pr[li]) for li in range(len(L))]
+            del H
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except BaseException as e:
+            _fail(work, f"external/{t.get('tag')}", e)
+            raise
+        res.append(row)
+        print(f"  {k + 1}/{len(todo)} {t['tag']} 前 {n} token top20={top:.3f} "
+              f"PathVQA 方向(第 {L[len(L) // 2]} 层)均值={np.mean(row['bins_pv'][len(L) // 2]):.3f}", file=sys.stderr)
+    out = {"note": "外部 ClockQA 轨迹的冲突分数（见 run_external）", "window": WINDOW, "bin": BIN, "shard": shard, "rows": res}
+    _atomic_json(out_path, out)
+    print(f"[fp-conflict external] {len(res)} 条 → {out_path}", file=sys.stderr)
     return out
