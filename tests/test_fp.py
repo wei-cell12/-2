@@ -726,9 +726,12 @@ def test_compare_time_judge_roundtrip(tmp_path):
     km = json.load(open(root / "time_judge" / "key_map.json"))
     fake = {"obs|CQ-000|neutral": "1:00:00", "obs|CQ-000|belief": "12:05:00", "obs|CQ-000|belief_right": "1:00:00",
             "full|CQ-000|belief": "1:00:00"}
-    write_jsonl(str(tmp_path / "j.jsonl"), [{"key": k, "status": "single", "time": fake[v], "candidates": [], "evidence": ""}
-                                            for k, v in km.items()])
-    st = cm.time_import(str(cq), str(root), str(tmp_path / "j.jsonl"))
+    rows = [{"key": k, "status": "single", "time": fake[v], "candidates": [], "evidence": ""} for k, v in km.items()]
+    write_jsonl(str(root / "time_judge" / "judgments_raw_1.jsonl"), rows[:2])          # 分两批判读
+    assert cm.time_export(str(cq), str(root)) == 2                                      # 只剩 2 条没判
+    write_jsonl(str(root / "time_judge" / "judgments_raw_2.jsonl"), rows[2:])
+    assert cm.time_export(str(cq), str(root)) == 0
+    st = cm.time_import(str(cq), str(root))
     assert st["got"] == 4 and st["missing"] == 0
     dis = json.load(open(root / "time_judge" / "disagreements.json"))
     assert [d["which"] for d in dis] == ["obs|CQ-000|belief"]          # 正则取不出“同意但不复述”的时间，判读能取

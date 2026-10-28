@@ -62,25 +62,37 @@ CUDA_VISIBLE_DEVICES=<卡号> python run.py fp-compare --phase run --config $C -
 - 多张卡时：每个进程加 `--shard k/n`，日志写 `run_k.log`，所有进程用同一个 `--root $M`。
 - 中途停下后，重新运行同一条命令，会跳过已完成的。
 
-### 3. 取出时间（判读子 agent，等所有生成进程结束）
+### 3. 取出时间（判读子 agent，可以边跑边做）
 
 答案对错不再用正则取时间，改成由判读模型取出“最终断言的时间”，再由程序按严格规则判定。
 
-```bash
-git pull                                       # 应包含 time-export / time-import（commit 见对话）
-python run.py fp-compare --phase time-export --cq $CQ --root $M 2>&1 | tee $M/time_export.log
-```
-
-用之前判读 PathVQA 的同一个判读者（Gemini 3.8 Flash，medium，子 agent），按 `$M/time_judge/提取说明.md` 逐行处理 `$M/time_judge/requests.jsonl`：
-- 每行输出一个 JSON，写到 `$M/time_judge/judgments_raw.jsonl`；
-- 不要把正确答案、方法名或条件告诉判读者；
-- 不要改说明。
+**用另一份仓库来做，不要动正在跑实验的那份。** 正在跑的进程用的是原来那份代码，在原目录里 `git pull` 可能让它们混用新旧代码。
 
 ```bash
-python run.py fp-compare --phase time-import --cq $CQ --root $M --judgments $M/time_judge/judgments_raw.jsonl 2>&1 | tee $M/time_import.log
+L=/mnt/sdb/linxin/repo-label                   # 专门用来标注的另一份仓库
+git clone https://github.com/wei-cell12/-2 $L  # 只做一次；以后用 git -C $L pull 更新
+cd $L && python -m pytest tests/test_fp.py -q  # 应全部通过
 ```
 
-日志里“缺 N 条”或“格式不对 N 条”不为 0 时，只把缺的或格式不对的那几条重新交给判读者，再运行一次 time-import。
+每一批的做法（第一批现在就做，之后大约每 2 小时做一批，最后一批在所有生成结束后做）：
+
+```bash
+cd $L
+python run.py fp-compare --phase time-export --cq $CQ --root $M 2>&1 | tee -a $M/time_export.log
+```
+
+1. 日志会写出“还没判读的 N 条”，这些条目在 `$M/time_judge/requests_new.jsonl` 里。
+2. 用之前判读 PathVQA 的同一个判读者（Gemini 3.8 Flash，medium，子 agent），按 `$M/time_judge/提取说明.md` 逐行处理，写到一个新文件 `$M/time_judge/judgments_raw_<批次号>.jsonl`。批次号从 01 开始递增，不要覆盖已有的文件。
+3. 不要把正确答案、方法名或条件告诉判读者，也不要改说明。
+
+```bash
+python run.py fp-compare --phase time-import --cq $CQ --root $M 2>&1 | tee -a $M/time_import.log
+python run.py fp-compare --phase summary --cq $CQ --root $M --out $M/compare_summary.json 2>&1 | tee $M/summary.log
+```
+
+- 导入时会自动读取所有 `judgments_raw_*.jsonl`。
+- “格式不对”的条目，下一批 export 时会重新出现在 `requests_new.jsonl` 里，重新判读即可。
+- 汇总只统计已经判读的条目，日志里会写出“已生成但未判读”的条数。
 
 ### 4. 汇总（CPU）
 

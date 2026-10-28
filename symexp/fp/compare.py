@@ -787,6 +787,9 @@ def run_summary(cq: str, root: str, out_path: str, arms: Optional[List[str]] = N
     jp = os.path.join(root, "time_judge", "judgments.json")
     J = json.load(open(jp, encoding="utf-8")) if os.path.exists(jp) else None
     if J is not None:
+        miss = [i for i in items if f"obs|{i}|neutral" not in J]
+        if miss:
+            raise SystemExit(f"中性回答还有 {len(miss)} 条没判读（如 {miss[:3]}），先把它们判完")
         neutral_ok = {i: J[f"obs|{i}|neutral"]["outcome"] == "坚持（答对）" for i in sorted(items)}
     else:
         neutral_ok = {i: clock_match(clock_pred(obs(i, "neutral")["answer"]), items[i]["gold"]) in ("exact", "nosec")
@@ -797,14 +800,18 @@ def run_summary(cq: str, root: str, out_path: str, arms: Optional[List[str]] = N
         for c in CONDS:
             r = obs(i, c)
             claim = items[i]["gold"] if c.endswith("_right") else items[i]["claim"]
-            base[(i, c)] = J[f"obs|{i}|{c}"]["outcome"] if J is not None else outcome(r["answer"], items[i]["gold"], claim)
+            if J is not None:
+                if f"obs|{i}|{c}" in J:
+                    base[(i, c)] = J[f"obs|{i}|{c}"]["outcome"]
+            else:
+                base[(i, c)] = outcome(r["answer"], items[i]["gold"], claim)
     table["原模型"] = metrics(neutral_ok, base)
     ob = [obs(i, c) for i in items for c in CONDS]
     cost["原模型"] = {"n": len(ob), "seconds_median": float(np.median([r["seconds"] for r in ob])),
                     "tokens_median": float(np.median([r["n_out"] for r in ob])),
                     "seconds_per_token_median": float(np.median([r["seconds"] / max(r["n_out"], 1) for r in ob]))}
     arms = arms or [a for a in ARMS if a != "loop" and os.path.isdir(os.path.join(root, a, "records"))]
-    trig = {}
+    trig, unjudged = {}, {}
     for a in arms:
         oc, recs = {}, []
         for i in items:
@@ -812,6 +819,9 @@ def run_summary(cq: str, root: str, out_path: str, arms: Optional[List[str]] = N
                 p = _rec_path(root, a, i, c)
                 if os.path.exists(p):
                     r = json.load(open(p, encoding="utf-8"))
+                    if J is not None and f"{a}|{i}|{c}" not in J:
+                        unjudged[a] = unjudged.get(a, 0) + 1
+                        continue
                     oc[(i, c)] = J[f"{a}|{i}|{c}"]["outcome"] if J is not None else r["outcome"]
                     recs.append(r)
         if not recs:
@@ -845,6 +855,7 @@ def run_summary(cq: str, root: str, out_path: str, arms: Optional[List[str]] = N
                               "judge_consistent_and_correct": int(judge_right)}
     out = {"scoring": "判读模型取时间 + 严格规则" if J is not None else "正则取时间 + 严格规则（未经判读，仅供参考）",
            "neutral_correct": int(sum(neutral_ok.values())), "n_items": len(items), "metrics": table, "cost": cost,
+           "generated_but_not_judged": unjudged,
            "anchor2": trig}
     _atomic_json(out_path, out)
     print(json.dumps(out, ensure_ascii=False, indent=1), file=sys.stderr)
@@ -911,11 +922,27 @@ def time_export(cq: str, root: str) -> int:
         reply = r["answer"] if r["answer"].strip() else "(no final answer; end of thinking:)\n" + r["thinking"][-1500:]
         rows.append({"key": k, "message": items[i]["messages"][c], "reply": reply})
     rows.sort(key=lambda x: x["key"])
+    done = set(_raw_judgments(d))
+    new = [r for r in rows if r["key"] not in done]
     write_jsonl(os.path.join(d, "requests.jsonl"), rows)
+    write_jsonl(os.path.join(d, "requests_new.jsonl"), new)
     _atomic_json(os.path.join(d, "key_map.json"), mapping)
     open(os.path.join(d, "提取说明.md"), "w", encoding="utf-8").write(TIME_INSTRUCTIONS)
-    print(f"[time-export] {len(rows)} 条 → {d}/requests.jsonl（说明：{d}/提取说明.md）", file=sys.stderr)
-    return len(rows)
+    print(f"[time-export] 已完成的回答共 {len(rows)} 条，其中还没判读的 {len(new)} 条 → {d}/requests_new.jsonl"
+          f"（说明：{d}/提取说明.md）", file=sys.stderr)
+    return len(new)
+
+
+def _raw_judgments(d: str) -> Dict[str, dict]:
+    """time_judge/ 下所有 judgments_raw*.jsonl，按文件名顺序读，同一个 key 以后读到的为准。"""
+    from ..store import read_jsonl
+    import glob as _g
+    out = {}
+    for p in sorted(_g.glob(os.path.join(d, "judgments_raw*.jsonl"))):
+        for j in read_jsonl(p):
+            if isinstance(j, dict) and j.get("key"):
+                out[j["key"]] = j
+    return out
 
 
 def judged_outcome(j: dict, gold: str, claim: Optional[str]) -> str:
@@ -942,7 +969,8 @@ def judged_outcome(j: dict, gold: str, claim: Optional[str]) -> str:
 _TP_FULL = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?")
 
 
-def time_import(cq: str, root: str, judgments_path: str) -> dict:
+def time_import(cq: str, root: str, judgments_path: Optional[str] = None) -> dict:
+    """judgments_path 不给时，读 time_judge/ 下所有 judgments_raw*.jsonl（可以分批追加）。"""
     from .conflict import _items
     from .pipeline import _atomic_json
     from ..store import read_jsonl
@@ -951,7 +979,8 @@ def time_import(cq: str, root: str, judgments_path: str) -> dict:
     mapping = json.load(open(os.path.join(d, "key_map.json"), encoding="utf-8"))
     recs = {internal: (i, c, r) for internal, i, c, r in _time_records(cq, root)}
     got, bad = {}, []
-    for j in read_jsonl(judgments_path):
+    raw = list(read_jsonl(judgments_path)) if judgments_path else list(_raw_judgments(d).values())
+    for j in raw:
         k = j.get("key")
         if k not in mapping:
             continue
@@ -961,6 +990,7 @@ def time_import(cq: str, root: str, judgments_path: str) -> dict:
         got[mapping[k]] = {x: j.get(x) for x in ("status", "time", "candidates", "evidence")}
     missing = sorted(set(mapping.values()) - set(got))
     rows, disagree = {}, []
+    got = {k: v for k, v in got.items() if k in recs}
     for internal, v in got.items():
         i, c, r = recs[internal]
         gold = items[i]["gold"]
