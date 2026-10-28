@@ -62,7 +62,27 @@ CUDA_VISIBLE_DEVICES=<卡号> python run.py fp-compare --phase run --config $C -
 - 多张卡时：每个进程加 `--shard k/n`，日志写 `run_k.log`，所有进程用同一个 `--root $M`。
 - 中途停下后，重新运行同一条命令，会跳过已完成的。
 
-### 3. 汇总（CPU，等所有进程结束）
+### 3. 取出时间（判读子 agent，等所有生成进程结束）
+
+答案对错不再用正则取时间，改成由判读模型取出“最终断言的时间”，再由程序按严格规则判定。
+
+```bash
+git pull                                       # 应包含 time-export / time-import（commit 见对话）
+python run.py fp-compare --phase time-export --cq $CQ --root $M 2>&1 | tee $M/time_export.log
+```
+
+用之前判读 PathVQA 的同一个判读者（Gemini 3.8 Flash，medium，子 agent），按 `$M/time_judge/提取说明.md` 逐行处理 `$M/time_judge/requests.jsonl`：
+- 每行输出一个 JSON，写到 `$M/time_judge/judgments_raw.jsonl`；
+- 不要把正确答案、方法名或条件告诉判读者；
+- 不要改说明。
+
+```bash
+python run.py fp-compare --phase time-import --cq $CQ --root $M --judgments $M/time_judge/judgments_raw.jsonl 2>&1 | tee $M/time_import.log
+```
+
+日志里“缺 N 条”或“格式不对 N 条”不为 0 时，只把缺的或格式不对的那几条重新交给判读者，再运行一次 time-import。
+
+### 4. 汇总（CPU）
 
 ```bash
 python run.py fp-compare --phase summary --cq $CQ --root $M --out $M/compare_summary.json 2>&1 | tee $M/summary.log
@@ -75,6 +95,7 @@ D=<仓库>/results/compare_cq_20261029
 mkdir -p $D
 cp -r $M/mmsy $M/full $M/itsm $M/loop $D/
 cp $M/compare_gate.json $M/compare_summary.json $M/*.log $D/
+cp -r $M/time_judge $D/
 ```
 
 **不要上传** `$M/refs_prefix/` 里的 npz；同目录下的 json 要上传：`mkdir -p $D/refs_prefix && cp $M/refs_prefix/*.json $D/refs_prefix/`。提交并推送。

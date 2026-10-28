@@ -178,7 +178,8 @@ def main():
     fvf.add_argument("--samples", type=int, default=3)
     fvf.add_argument("--only", nargs="*", default=None, help="只跑这些题（题号如 CQ-039，或清单里的 tag）")
     fcm = sub.add_parser("fp-compare", help="五压力：ClockQA 完整方法（锚点一+锚点二）与 baseline 的对比（gate / run / summary）")
-    fcm.add_argument("--phase", required=True, choices=["gate", "run", "summary"])
+    fcm.add_argument("--phase", required=True, choices=["gate", "run", "time-export", "time-import", "summary"])
+    fcm.add_argument("--judgments", default=None, help="time-import：判读子 agent 输出的 .jsonl")
     fcm.add_argument("--cq", required=True, help="ClockQA 目录（fp-conflict-setup 建的；读题目、中性与原模型记录、中性注意力）")
     fcm.add_argument("--work", default=None, help="冲突方向的工作目录（读 directions.npz）；gate、run 需要")
     fcm.add_argument("--root", required=True, help="对比实验的新目录（结果存这里）")
@@ -264,7 +265,13 @@ def main():
             fp_entropy(Config.load(a.config, _overrides(a.set)), a.root, a.out)
         elif a.cmd == "fp-compare":
             from symexp.fp import compare as fp_compare
-            if a.phase == "summary":
+            if a.phase == "time-export":
+                fp_compare.time_export(a.cq, a.root)
+            elif a.phase == "time-import":
+                if not a.judgments:
+                    raise SystemExit("--phase time-import 需要 --judgments")
+                fp_compare.time_import(a.cq, a.root, a.judgments)
+            elif a.phase == "summary":
                 fp_compare.run_summary(a.cq, a.root, a.out or os.path.join(a.root, "compare_summary.json"))
             else:
                 if not a.work:
