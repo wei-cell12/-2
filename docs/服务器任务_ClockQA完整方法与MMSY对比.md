@@ -17,7 +17,7 @@
 两种方法：
 - **mmsy**：MM-SY（ICLR 2025）。在后 8 个标准注意力层，把图像 token 的注意力打分 e 改为 e + 0.9·|e|。
 - **full**：完整方法。
-  - 锚点一：v1 restore_E，参照来自同一题的中性回答。
+  - 锚点一：v1 restore_E，只在两段里干预：思考开头 256 个 token；锚点二接回 `<result>` 起，到结果文字结束后 256 个 token。其余位置用原注意力函数。参照来自同一题中性回答的前 256 个 token，程序会先用种子 42 只生成中性回答的前 256 个 token，存在 `$M/refs_prefix/`，每题约半分钟。
   - 锚点二：生成时实时计算冲突分数，超过阈值就插入 `<verify>`，由裁判核对后接回 `<result>`。
 
 原模型的结果直接用已有的 `$CQ/obs` 记录，不重新生成。
@@ -43,7 +43,7 @@ CUDA_VISIBLE_DEVICES=<卡号> python run.py fp-compare --phase gate --config $C 
 预检会做四件事：
 1. 用新代码以原模型设置生成 2 题，看能否和已有记录逐 token 一致。
 2. 检查生成时实时算的冲突分数，和整段重算的结果是否一致。
-3. full 跑 1 题。
+3. full 跑 1 题，包括生成这道题的前缀参照，并检查它是否和已有的中性记录逐 token 一致。
 4. mmsy 跑 1 题。
 
 日志最后一行如果是 `ok=False`，**停下汇报** `$M/compare_gate.json`。如果是 `ok=True`，继续下一步；这时即使 `deterministic=False` 也继续，但要在汇报里说明。
@@ -73,7 +73,7 @@ cp -r $M/mmsy $M/full $M/loop $D/
 cp $M/compare_gate.json $M/compare_summary.json $M/*.log $D/
 ```
 
-**不要上传** `$M/refs/`（npz）。提交并推送。
+**不要上传** `$M/refs_prefix/` 里的 npz；同目录下的 json 要上传：`mkdir -p $D/refs_prefix && cp $M/refs_prefix/*.json $D/refs_prefix/`。提交并推送。
 
 ## 汇报
 

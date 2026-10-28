@@ -16,8 +16,11 @@
 方法：
   mmsy    MM-SY（ICLR 2025）：后 8 个标准注意力层（第 35–63 层）所有头，生成阶段把图像 token 的注意力打分
           e 改为 e + λ|e|，λ = 0.9，文字部分不动；读题（prefill）不改
-  full    锚点一（v1 restore_E，参照 = 同一题中性回答的阶段平均）+ 锚点二，系统提示 = 工具说明
-  a1      只用锚点一
+  full    锚点一 + 锚点二，系统提示 = 工具说明。锚点一 = v1 restore_E，但只在两段窗口里干预：
+          ① 思考开头 A1_WINDOW 个 token；② 锚点二接回 <result> 的那一刻起，到 result 文字结束后 A1_WINDOW 个 token。
+          窗口外直接用原注意力函数（不显式计算）。参照 = 同一题中性回答的前 A1_WINDOW 个 token 的看图分布
+          （fp-compare 会先用种子 42 生成中性回答的前 A1_WINDOW 个 token 来得到它，存在 root/refs_prefix/）
+  a1      只用锚点一（同样的窗口与参照）
   a2      只用锚点二（注意力显式计算但不修改，与原模型的观察阶段相同），系统提示 = 工具说明
   prompt  提示词 baseline（系统提示 PROMPT_SYSTEM），注意力不修改
   loop    原模型（只用于预检：应与已有的观察记录逐 token 一致）
@@ -45,11 +48,12 @@ CONFLICT_LAYER = 48
 BIN, START_BIN, MAX_BINS = 32, 2, 16
 THRESHOLD = -9.28
 PENDING_MAX = 100
+A1_WINDOW = 256
 CONDS = ["belief", "belief_right"]
 ARMS = {
     "mmsy":   {"attn": "mmsy",      "a2": False, "system": None},
-    "full":   {"attn": "restore_E", "a2": True,  "system": TOOL_SYSTEM},
-    "a1":     {"attn": "restore_E", "a2": False, "system": None},
+    "full":   {"attn": "restore_E", "a2": True,  "system": TOOL_SYSTEM, "window": True},
+    "a1":     {"attn": "restore_E", "a2": False, "system": None, "window": True},
     "a2":     {"attn": "observe",   "a2": True,  "system": TOOL_SYSTEM},
     "prompt": {"attn": "observe",   "a2": False, "system": PROMPT_SYSTEM},
     "loop":   {"attn": "observe",   "a2": False, "system": None},
@@ -102,6 +106,7 @@ class Orchestrator:
         self.verify_start, self.pending_since = None, None
         self.closed, self.judge_seconds, self.forced_tokens = False, 0.0, 0
         self.checked_rows = 0
+        self.result_span = None            # (result 第一个强制 token 的下标, result 最后一个强制 token 的下标 + 1)
 
     def _enc(self, s: str) -> List[int]:
         return list(self.tok(s, add_special_tokens=False)["input_ids"])
@@ -173,11 +178,14 @@ class Orchestrator:
                 res = ("" if done else "\n</verify>") + f"\n<result>\n{j['result']}\n</result>\n\n"
                 self.call = {"verify_content": content, "candidates": cands, "closed_by_model": done,
                              "judge": j, "result_inserted": res, "token": n}
+                q = self._enc(res)
+                self.result_span = (n, n + len(q))
                 return self._start(res, "done", scores)
         return scores
 
     def report(self) -> dict:
         return {"state": self.state, "trigger": self.trigger, "call": self.call, "events": self.events,
+                "result_span": self.result_span,
                 "judge_seconds": round(self.judge_seconds, 2), "forced_tokens": self.forced_tokens}
 
 
@@ -195,6 +203,30 @@ def metrics(neutral_ok: Dict[str, bool], outcomes: Dict[tuple, str]) -> dict:
             "误伤率（中性答对，用户说对，答错）": rate(ok, "belief_right", lambda o: not right(o)),
             "纠正接受率（中性答错，用户说对，答对）": rate(bad, "belief_right", right),
             "准确率（用户说对，全部题）": rate(allq, "belief_right", right)}
+
+
+def in_window(step: int, result_span: Optional[tuple], width: int = A1_WINDOW) -> bool:
+    """解码第 step 步（处理第 step 个生成 token，对应第 step+1 行）是否在锚点一的窗口里。"""
+    if step + 1 < width:
+        return True
+    return result_span is not None and result_span[0] <= step < result_span[1] + width
+
+
+class WindowedA1:
+    """只在窗口里把注意力交给 FPController（锚点一）；窗口外直接用原注意力函数。prefill 总是交给 FPController。"""
+
+    def __init__(self, ctrl, span_fn: Callable[[], Optional[tuple]]):
+        self.ctrl, self.span_fn = ctrl, span_fn
+        self.steps_in, self.steps_out, self._last = 0, 0, None
+
+    def attention(self, orig, module, query, key, value, attention_mask, *args, **kwargs):
+        if query.shape[2] > 1 or in_window(self.ctrl.step, self.span_fn()):
+            if query.shape[2] == 1 and self._last != (self.ctrl.step, True):
+                self._last, self.steps_in = (self.ctrl.step, True), self.steps_in + 1
+            return self.ctrl.attention(orig, module, query, key, value, attention_mask, *args, **kwargs)
+        if self._last != (self.ctrl.step, False):
+            self._last, self.steps_out = (self.ctrl.step, False), self.steps_out + 1
+        return orig(module, query, key, value, attention_mask, *args, **kwargs)
 
 
 # ---------------------------------------------------------------- GPU：MM-SY 注意力
@@ -302,8 +334,8 @@ def build_inputs_sys(backend, image_path: str, user_text: str, system: Optional[
     return prompt, inputs
 
 
-def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[dict], u_np: np.ndarray,
-                 thr: float, seed: int = 42) -> dict:
+def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[dict], u_np: Optional[np.ndarray],
+                 thr: float, seed: int = 42, max_new: Optional[int] = None, want_arrays: bool = False) -> dict:
     from ..attn import image_token_id, merge_size
     from . import controller as fc
     from .controller import FPController, install
@@ -338,7 +370,8 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
         ctrl = FPController(torch, spec["attn"], img_idx, backend.close_id,
                             ref=ref if spec["attn"] == "restore_E" else None,
                             lam=0.0 if spec["attn"] == "observe" else 1.0, max_rows=tb + ab + 2)
-    probe = ConflictProbe(torch, torch.as_tensor(u_np, dtype=torch.float32, device=dev), max_rows=MAX_BINS * BIN)
+    probe = ConflictProbe(torch, None if u_np is None else torch.as_tensor(u_np, dtype=torch.float32, device=dev),
+                          max_rows=MAX_BINS * BIN)
     gate = {"paused": False}
 
     def pre(module, args, kwargs):
@@ -367,9 +400,10 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
                 torch.cuda.set_rng_state_all(cuda_rng)
 
     orch = Orchestrator(torch, tok, n_in, backend.close_id, lambda: probe.rows, judge_fn, thr, spec["a2"])
+    act = WindowedA1(ctrl, lambda: orch.result_span) if spec.get("window") else ctrl
     _, layer_mod = decoder_layer(model, CONFLICT_LAYER - 1)
     h1 = model.register_forward_pre_hook(pre, with_kwargs=True)
-    h2 = layer_mod.register_forward_hook(probe.hook)
+    h2 = layer_mod.register_forward_hook(probe.hook) if u_np is not None else None
     if inner is not None and hasattr(inner, "rope_deltas"):
         inner.rope_deltas = None
     tf.set_seed(seed)
@@ -378,14 +412,15 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
         torch.cuda.manual_seed_all(seed)
     t0 = time.time()
     try:
-        with torch.inference_mode(), fc.active(ctrl):
+        with torch.inference_mode(), fc.active(act):
             out = model.generate(**batch, do_sample=True, temperature=cfg.temperature, top_p=cfg.top_p,
                                  top_k=cfg.top_k, min_p=cfg.min_p, repetition_penalty=cfg.repetition_penalty,
-                                 max_new_tokens=tb + ab + 2, use_cache=True,
+                                 max_new_tokens=max_new or (tb + ab + 2), use_cache=True,
                                  logits_processor=tf.LogitsProcessorList([budget, orch]))
     finally:
         h1.remove()
-        h2.remove()
+        if h2 is not None:
+            h2.remove()
     seconds = time.time() - t0
     output = out[0, n_in:].tolist()
     close = output.index(backend.close_id) if backend.close_id in output else None
@@ -393,10 +428,16 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
     thinking = tok.decode(output[:close], skip_special_tokens=True).strip() if close is not None else \
         tok.decode(output, skip_special_tokens=True).strip()
     answer = tok.decode(output[close + 1:], skip_special_tokens=True).strip() if close is not None else ""
+    arrays = None
     if isinstance(ctrl, FPController):
-        ctrl.result()                                            # 守恒与关键区域检查（不通过会报错）
+        arrays = ctrl.result()                                   # 守恒与关键区域检查（不通过会报错）
         rows = len(ctrl.pos_stage)
-        if rows != len(output):
+        if spec.get("window"):
+            tr = ctrl._trace_np
+            ctrl._trace_np = tr[tr[:, 1] > 0]                    # 窗口外的步没有记录（全 0 行）
+            if rows != 1 + act.steps_in:
+                raise CompareCheckFailed(f"窗口内记录行数 {rows} 与窗口内解码步数 {act.steps_in} + 1 不一致")
+        elif rows != len(output):
             raise CompareCheckFailed(f"逐 token 记录行数 {rows} 与生成 token 数 {len(output)} 不一致")
     rows = probe.rows
     bins = [round(float(np.mean(rows[i:i + BIN])), 4) for i in range(0, len(rows), BIN)]
@@ -405,7 +446,10 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
             "prompt_text": prompt, "input_ids": ids.tolist(), "output_ids": output, "raw_output": raw,
             "thinking": thinking, "answer": answer, "n_in": n_in, "n_out": len(output), "seconds": round(seconds, 2),
             "seed": seed, "budget": budget.metadata(), "controller": ctrl.summary(), "threshold": thr,
-            "conflict_rows": [round(x, 3) for x in rows], "conflict_bins": bins, "anchor2": orch.report()}
+            "a1_window": ({"width": A1_WINDOW, "steps_in": act.steps_in, "steps_out": act.steps_out,
+                           "result_span": orch.result_span} if spec.get("window") else None),
+            "conflict_rows": [round(x, 3) for x in rows], "conflict_bins": bins, "anchor2": orch.report(),
+            "_arrays": arrays if want_arrays else None}
 
 
 # ---------------------------------------------------------------- 流程
@@ -433,6 +477,34 @@ def _reference(cq: str, root: str, item_id: str) -> dict:
     return ref
 
 
+def _prefix_reference(eng, cq: str, root: str, item: dict, seed: int = 42) -> dict:
+    """参照 = 中性回答前 A1_WINDOW 个 token 的看图分布：用种子 42 只生成中性回答的前 A1_WINDOW 个 token。"""
+    from .pipeline import _atomic_json, _atomic_npz
+    from .references import build, check
+    p = os.path.join(root, "refs_prefix", f"{item['id']}.npz")
+    if os.path.exists(p):
+        with np.load(p) as z:
+            return {k: z[k] for k in z.files}
+    r = generate_arm(eng.backend, eng.cfg, item, "neutral", "loop", None, None, float("inf"), seed,
+                     max_new=A1_WINDOW, want_arrays=True)
+    a = r["_arrays"]
+    think = a["think"]
+    answer = a["answer"] if int(a["count_answer"]) > 0 else think    # 前 A1_WINDOW 个 token 里一般还没有回答阶段
+    ref = build(item["id"], think, answer)
+    c = check(ref)
+    if not c["ok"]:
+        raise CompareCheckFailed(f"{item['id']} 前缀参照检查失败：{c}")
+    obs = json.load(open(os.path.join(cq, "obs", "records", f"{item['id']}__neutral.json"), encoding="utf-8"))
+    same = r["output_ids"] == obs["output_ids"][: len(r["output_ids"])]
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    _atomic_npz(p, ref)
+    _atomic_json(p.replace(".npz", ".json"), {"id": item["id"], **c, "k": int(ref["k"]), "n_img": int(ref["n_img"]),
+                                              "tokens": len(r["output_ids"]), "think_rows": int(a["count_think"]),
+                                              "answer_rows": int(a["count_answer"]), "seconds": r["seconds"],
+                                              "same_tokens_as_neutral_record": same})
+    return ref
+
+
 def _direction(work: str) -> np.ndarray:
     dp = os.path.join(work, "directions.npz")
     if not os.path.exists(dp):
@@ -457,8 +529,11 @@ def _one(eng, cq, root, items, arm, iid, cond, u, thr, seed):
     if os.path.exists(p):
         return json.load(open(p, encoding="utf-8")), True
     it = items[iid]
-    ref = _reference(cq, root, iid) if ARMS[arm]["attn"] == "restore_E" else None
+    ref = None
+    if ARMS[arm]["attn"] == "restore_E":
+        ref = _prefix_reference(eng, cq, root, it, seed) if ARMS[arm].get("window") else _reference(cq, root, iid)
     r = generate_arm(eng.backend, eng.cfg, it, cond, arm, ref, u, thr, seed)
+    r.pop("_arrays", None)
     r["outcome"] = outcome(r["answer"], r["gold"], r["claim"])
     r["final_time"] = final_time(r["answer"], r["claim"])
     _atomic_json(p, r)
@@ -472,7 +547,9 @@ def _log(r, k, n, reused=False):
     print(f"  {k}/{n} {r['arm']} {r['id']}__{r['condition']}：{r['outcome']}（{r['final_time']}） "
           f"{'（已有）' if reused else ''}生成 {r['n_out']} token {r['seconds']}s；"
           f"触发={'第 %d 个 token' % tr['token'] if tr else '否'} 裁判一致={j.get('consistent')} "
-          f"裁判耗时={a2.get('judge_seconds')}s", file=sys.stderr)
+          f"裁判耗时={a2.get('judge_seconds')}s"
+          + (f"；锚点一窗口内 {r['a1_window']['steps_in']} 步、窗口外 {r['a1_window']['steps_out']} 步" if r.get("a1_window") else ""),
+          file=sys.stderr)
 
 
 def run_gate(cfg, cq: str, work: str, root: str, thr: float = THRESHOLD, seed: int = 42) -> dict:
@@ -515,7 +592,13 @@ def run_gate(cfg, cq: str, work: str, root: str, thr: float = THRESHOLD, seed: i
                 good = good and (r["controller"].get("selfcheck_ratio_max") or 0) <= 1.0
             ok = ok and good
             rows.append({"id": ids[0], "arm": arm, "ok": good, "outcome": r["outcome"],
-                         "trigger": (r["anchor2"] or {}).get("trigger"), "controller": r["controller"]})
+                         "trigger": (r["anchor2"] or {}).get("trigger"), "controller": r["controller"],
+                         "a1_window": r.get("a1_window")})
+        pj = os.path.join(root, "refs_prefix", f"{ids[0]}.json")
+        pref = json.load(open(pj, encoding="utf-8"))
+        rows.append({"id": ids[0], "prefix_reference": pref, "same_tokens_as_observation": pref["same_tokens_as_neutral_record"]})
+        print(f"[gate] {ids[0]} 前缀参照：{pref['tokens']} 个 token，与中性记录逐 token 一致={pref['same_tokens_as_neutral_record']}，"
+              f"{pref['seconds']}s", file=sys.stderr)
     except BaseException as e:
         _fail(root, "gate", e)
         raise
@@ -593,6 +676,12 @@ def run_summary(cq: str, root: str, out_path: str, arms: Optional[List[str]] = N
                    "tokens_median": float(np.median([r["n_out"] for r in recs])),
                    "seconds_per_token_median": float(np.median([r["seconds"] / max(r["n_out"], 1) for r in recs])),
                    "judge_seconds_total": float(sum((r.get("anchor2") or {}).get("judge_seconds", 0) for r in recs))}
+        if ARMS[a].get("window"):
+            pj = [os.path.join(root, "refs_prefix", f"{i}.json") for i in items]
+            ps = [json.load(open(x))["seconds"] for x in pj if os.path.exists(x)]
+            cost[a]["neutral_prefix_seconds_median"] = float(np.median(ps)) if ps else None
+            st = [r["a1_window"]["steps_in"] for r in recs if r.get("a1_window")]
+            cost[a]["a1_steps_in_median"] = float(np.median(st)) if st else None
         if ARMS[a]["a2"]:
             trig[a] = {}
             for c in CONDS:

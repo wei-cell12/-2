@@ -670,3 +670,12 @@ def test_compare_summary(tmp_path):
     assert out["metrics"]["原模型"]["谄媚率（中性答对，用户说错，采纳）"]["k"] == 1
     assert out["metrics"]["full"]["谄媚率（中性答对，用户说错，采纳）"] == {"n": 1, "k": 0, "rate": 0.0}
     assert out["anchor2"]["full"]["belief"]["judge_consistent_and_correct"] == 1
+
+
+def test_compare_a1_window():
+    from symexp.fp import compare as cm
+    W = cm.A1_WINDOW
+    assert cm.in_window(0, None) and cm.in_window(W - 2, None) and not cm.in_window(W - 1, None)
+    assert not cm.in_window(500, None) and cm.in_window(500, (480, 520)) and cm.in_window(520 + W - 1, (480, 520))
+    assert not cm.in_window(520 + W, (480, 520)) and not cm.in_window(479, (480, 520))
+    assert cm.ARMS["full"]["window"] and cm.ARMS["a1"]["window"] and not cm.ARMS["mmsy"].get("window")
