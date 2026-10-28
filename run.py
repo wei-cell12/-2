@@ -168,7 +168,15 @@ def main():
     fcf.add_argument("--cq", default=None, help="ClockQA 目录；不给就只做 PathVQA（ClockQA 生成完后再加上它重跑三步）")
     fcf.add_argument("--work", required=True, help="工作目录（配对差、方向存在这里，不上传）")
     fcf.add_argument("--out", default=None, help="project：输出 JSON")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf):
+    fvf = sub.add_parser("fp-verify", help="五压力：冲突触发的独立核查（续写实验，A 基线 / B 只有工具说明 / C 完整方法）")
+    fvf.add_argument("--cq", required=True, help="ClockQA 目录（fp-conflict-setup 建的）")
+    fvf.add_argument("--work", required=True, help="冲突方向的工作目录（读 directions.npz，结果存 work/verify/）")
+    fvf.add_argument("--cases", required=True, help="题目清单 JSON（results/conflict_direction_20261028/verify_cases_cq8.json）")
+    fvf.add_argument("--out", required=True)
+    fvf.add_argument("--threshold", type=float, default=-9.28, help="触发阈值（ClockQA、PathVQA 方向、误触发 20%%）")
+    fvf.add_argument("--conds", nargs="*", default=["A", "B", "C"])
+    fvf.add_argument("--samples", type=int, default=3)
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -243,6 +251,10 @@ def main():
         elif a.cmd == "fp-entropy":
             from symexp.fp.entropy import run as fp_entropy
             fp_entropy(Config.load(a.config, _overrides(a.set)), a.root, a.out)
+        elif a.cmd == "fp-verify":
+            from symexp.fp import verify as fp_verify
+            fp_verify.run(Config.load(a.config, _overrides(a.set)), a.cq, a.work, a.cases, a.out, a.threshold, a.conds,
+                          a.samples, a.shard)
         elif a.cmd == "fp-conflict-setup":
             from symexp.fp import conflict as fp_conflict
             fp_conflict.pv_setup(a.pv_src, a.pv)

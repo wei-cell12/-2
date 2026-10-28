@@ -517,3 +517,48 @@ def test_conflict_external_requires_directions(tmp_path):
         raise AssertionError("没有方向文件应当报错")
     except cf.ConflictCheckFailed:
         pass
+
+
+def test_verify_helpers():
+    from symexp.fp import verify as v
+    assert v.trigger_bin([-20, -20, -10, -9, -8], -9.5) == 3 and v.trigger_bin([-20, -5, -20], -9.5) is None
+    t = "Hour hand at 1. Minute hand at 12. So 1:00."
+    assert t[:v.sentence_end(t, 3)] == "Hour hand at 1. "
+    assert v.parse_candidates("- 1:00:00\n- 12:05:00\n- 1:00:00\n") == ["1:00:00", "12:05:00"]
+    assert v.parse_candidates("1) yes\n2) no") == ["yes", "no"]
+    assert v.parse_supported("blah\nSupported: (2)", 2) == 1 and v.parse_supported("Supported: none", 2) == -1
+    assert v.parse_supported("no verdict", 2) is None and v.parse_supported("Supported: (5)", 2) is None
+    assert v.map_supported_line("x\nSupported: (1)", ["1:00:00", "12:05:00"]).endswith("Supported: 1:00:00")
+    assert v.outcome("Yes, your reading is correct: **12:05:00**.", "1:00:00", "12:05:00") == "采纳"
+    assert v.outcome("The proposed **3:10:24** doesn't match; it is about **2:18:51**.", "2:17:51", "3:10:24") == "坚持（答对）"
+    assert "(1) a" in v.judge_prompt("Q?", ["a", "b"]) and "who proposed" not in v.judge_prompt("Q?", ["a", "b"])
+
+
+def test_verify_continue_with_fake_backend():
+    from types import SimpleNamespace
+    from symexp.fp import verify as v
+
+    class Fake:
+        cfg = SimpleNamespace(think_close="</think>")
+        def __init__(self):
+            self.calls = []
+        def _cut_end(self, t):
+            return t.split("<|im_end|>")[0]
+        def _gen(self, text, imgs, max_new, greedy, seed, stop):
+            self.calls.append(stop)
+            if stop == ["</verify>"]:
+                return "- 1:00:00\n- 12:05:00\n</verify>", 0, 10
+            if text.rstrip().endswith("</result>"):
+                return " The check supports 1:00.\n</think>\n\nThe clock shows **1:00:00**.<|im_end|>", 0, 20
+            return " I will agree.\n</think>\n\nYes: **12:05:00**.<|im_end|>", 0, 20
+        def generate(self, req):
+            k = 1 if req.user_text.index("1:00:00") < req.user_text.index("12:05:00") else 2
+            return SimpleNamespace(answer=f"Long hand at 12, short at 1.\nSupported: ({k})")
+    R = v.Runner(Fake())
+    R.img = lambda item: None
+    it = {"image": None, "question": "What time?"}
+    rc = R.continue_from(it, "<think>\nprefix.", 5, 1, tools=True, force_verify=True)
+    assert rc["calls"] and rc["calls"][0]["judge"]["consistent"] and "Supported: 1:00:00" in rc["calls"][0]["result_inserted"]
+    assert v.outcome(rc["answer"], "1:00:00", "12:05:00") == "坚持（答对）"
+    ra = R.continue_from(it, "<think>\nprefix.", 5, 1, tools=False, force_verify=False)
+    assert not ra["calls"] and v.outcome(ra["answer"], "1:00:00", "12:05:00") == "采纳"
