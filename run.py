@@ -177,7 +177,16 @@ def main():
     fvf.add_argument("--conds", nargs="*", default=["A", "B", "C"])
     fvf.add_argument("--samples", type=int, default=3)
     fvf.add_argument("--only", nargs="*", default=None, help="只跑这些题（题号如 CQ-039，或清单里的 tag）")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf):
+    fcm = sub.add_parser("fp-compare", help="五压力：ClockQA 完整方法（锚点一+锚点二）与 baseline 的对比（gate / run / summary）")
+    fcm.add_argument("--phase", required=True, choices=["gate", "run", "summary"])
+    fcm.add_argument("--cq", required=True, help="ClockQA 目录（fp-conflict-setup 建的；读题目、中性与原模型记录、中性注意力）")
+    fcm.add_argument("--work", default=None, help="冲突方向的工作目录（读 directions.npz）；gate、run 需要")
+    fcm.add_argument("--root", required=True, help="对比实验的新目录（结果存这里）")
+    fcm.add_argument("--arms", nargs="*", default=["mmsy", "full"], help="run：跑哪些方法（mmsy full a1 a2 prompt）")
+    fcm.add_argument("--conds", nargs="*", default=["belief", "belief_right"])
+    fcm.add_argument("--threshold", type=float, default=-9.28)
+    fcm.add_argument("--out", default=None, help="summary：输出 JSON")
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -252,6 +261,18 @@ def main():
         elif a.cmd == "fp-entropy":
             from symexp.fp.entropy import run as fp_entropy
             fp_entropy(Config.load(a.config, _overrides(a.set)), a.root, a.out)
+        elif a.cmd == "fp-compare":
+            from symexp.fp import compare as fp_compare
+            if a.phase == "summary":
+                fp_compare.run_summary(a.cq, a.root, a.out or os.path.join(a.root, "compare_summary.json"))
+            else:
+                if not a.work:
+                    raise SystemExit("--phase gate / run 需要 --work")
+                c = Config.load(a.config, _overrides(a.set))
+                if a.phase == "gate":
+                    fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed)
+                else:
+                    fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed)
         elif a.cmd == "fp-verify":
             from symexp.fp import verify as fp_verify
             fp_verify.run(Config.load(a.config, _overrides(a.set)), a.cq, a.work, a.cases, a.out, a.threshold, a.conds,
