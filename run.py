@@ -154,7 +154,20 @@ def main():
     fhd.add_argument("--subs", default="obs,int", help="forward：读哪些记录：obs、int 或 obs,int")
     fhd.add_argument("--work", required=True, help="工作目录（隐藏状态存在 work/hidden/，不上传）")
     fhd.add_argument("--out", default=None, help="analyze：输出 JSON")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd):
+    fcs = sub.add_parser("fp-conflict-setup", help="五压力：冲突方向实验建目录（PathVQA 加“用户说对”消息；ClockQA 从原始观察导出 62 题）")
+    fcs.add_argument("--pv-src", required=True, help="A800 主实验目录（只读）")
+    fcs.add_argument("--pv", required=True, help="PathVQA 新目录")
+    fcs.add_argument("--native", required=True, help="ClockQA 原始观察 native_outputs.jsonl（仓库 results/attn_intervene_20261025/clockqa_server59/five_pressure/）")
+    fcs.add_argument("--cq", required=True, help="ClockQA 新目录")
+    fcs.add_argument("--image-dirs", nargs="*", default=[], help="ClockQA 图像所在目录（从原始记录找不到图像时才用）")
+    fcf = sub.add_parser("fp-conflict", help="五压力：冲突方向（pairs / project 用 GPU，directions 用 CPU）")
+    fcf.add_argument("--phase", required=True, choices=["pairs", "directions", "project"])
+    fcf.add_argument("--pv-src", required=True)
+    fcf.add_argument("--pv", required=True)
+    fcf.add_argument("--cq", required=True)
+    fcf.add_argument("--work", required=True, help="工作目录（配对差、方向存在这里，不上传）")
+    fcf.add_argument("--out", default=None, help="project：输出 JSON")
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -229,6 +242,20 @@ def main():
         elif a.cmd == "fp-entropy":
             from symexp.fp.entropy import run as fp_entropy
             fp_entropy(Config.load(a.config, _overrides(a.set)), a.root, a.out)
+        elif a.cmd == "fp-conflict-setup":
+            from symexp.fp import conflict as fp_conflict
+            fp_conflict.pv_setup(a.pv_src, a.pv)
+            fp_conflict.cq_setup(a.native, a.cq, a.image_dirs)
+        elif a.cmd == "fp-conflict":
+            from symexp.fp import conflict as fp_conflict
+            if a.phase == "pairs":
+                fp_conflict.run_pairs(Config.load(a.config, _overrides(a.set)), a.pv_src, a.pv, a.cq, a.work, a.shard)
+            elif a.phase == "directions":
+                fp_conflict.run_directions(a.pv_src, a.pv, a.cq, a.work)
+            else:
+                if not a.out:
+                    raise SystemExit("--phase project 需要 --out")
+                fp_conflict.run_project(Config.load(a.config, _overrides(a.set)), a.pv_src, a.pv, a.cq, a.work, a.out, a.shard)
         elif a.cmd == "fp-hidden":
             from symexp.fp import hidden as fp_hidden
             if a.phase == "forward":

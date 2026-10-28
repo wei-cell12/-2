@@ -124,7 +124,8 @@ def _save_result(root: str, sub: str, item: dict, cond: str, mode: str, record: 
     npz = os.path.join(root, sub, "attn", tag + ".npz")
     _atomic_npz(npz, arrays)
     record = dict(record, id=item["id"], condition=cond, mode=mode, gold=item["gold"],
-                  claim=None if cond == "neutral" else item["claim"], message=item["messages"][cond],
+                  claim=None if cond == "neutral" else (item["gold"] if cond.endswith("_right") else item["claim"]),
+                  message=item["messages"][cond],
                   image=item["image"], image_sha256=item["image_sha256"], npz=npz, npz_sha256=_sha(npz),
                   saved=time.strftime("%Y-%m-%d %H:%M:%S"))
     _atomic_json(os.path.join(root, sub, "records", tag + ".json"), record)

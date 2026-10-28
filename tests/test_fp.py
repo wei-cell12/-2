@@ -438,3 +438,73 @@ def test_hidden_requires_hf(tmp_path):
         raise AssertionError("没有结果应当报错")
     except SystemExit:
         pass
+
+
+def test_conflict_labels_and_clock_match():
+    from symexp.fp import conflict as cf
+    assert cf.clock_pred("The clock shows **12:00:00**, not 7:00:00.") == "12:00:00"
+    assert cf.clock_pred("It reads 3:15.") == "3:15" and cf.clock_pred("no time") is None
+    assert cf.clock_match("6:00:01", "6:00:00") == "exact" and cf.clock_match("6:01", "6:00:00") == "nosec"
+    assert cf.clock_match("6:00:30", "6:00:00") == "hm" and cf.clock_match("7:00:00", "6:00:00") is None
+    pv = {"gold": "yes", "claim": "no"}
+    assert cf.conflict_of("pv", pv, "belief", "yes") is True and cf.conflict_of("pv", pv, "belief_right", "yes") is False
+    assert cf.pair_sign("pv", pv, "yes") == 1 and cf.pair_sign("pv", pv, "no") == -1 and cf.pair_sign("pv", pv, None) == 0
+    assert cf.conflict_of("pv", pv, "neutral", "yes") is None
+    cq = {"gold": "6:00:00", "claim": "7:00:00"}
+    assert cf.pair_sign("cq", cq, "6:00:00") == 1 and cf.pair_sign("cq", cq, "9:30:00") == 0
+    assert cf.pair_sign("cq", cq, "7:00:01") == -1
+
+
+def test_conflict_directions_math():
+    import numpy as np
+    from symexp.fp import conflict as cf
+    g = np.random.default_rng(0)
+    u = np.zeros((2, 8)); u[:, 3] = 1
+    diffs = []
+    for i in range(12):
+        s = 1 if i % 3 else -1
+        diffs.append(("pv", f"Q{i // 2}", s, s * (2 * u + 0.3 * g.normal(size=(2, 8)))))   # 方向与符号相乘后一致
+    diffs.append(("pv", "Q9", 0, g.normal(size=(2, 8))))
+    D = cf.directions(diffs)
+    assert (D["full"]["pv"][:, 3] > 0.9).all() and D["count"]["pv"]["used"] == 12 and D["count"]["pv"]["skipped"] == 1
+    assert ("pv", "Q9") in D["loqo"] and np.allclose(np.linalg.norm(D["loqo"][("pv", "Q0")], axis=-1), 1)
+    assert cf.bin_means(np.arange(70, dtype=float), 32) == [15.5, 47.5, 66.5]
+    try:
+        cf.directions(diffs[:5])
+        raise AssertionError("太少应当报错")
+    except cf.ConflictCheckFailed:
+        pass
+
+
+def test_conflict_setup(tmp_path):
+    import hashlib
+    from PIL import Image
+    from symexp.fp import conflict as cf, pipeline as fpp
+    src = str(tmp_path / "src")
+    fpp.prepare(src, n=3, source="synthetic")
+    fpp.observe(Config.load(None, {"backend": "mock"}), src, conditions=["neutral", "belief"], limit=2)
+    assert cf.pv_setup(src, str(tmp_path / "pv")) == 2
+    it = fpp.load_items(str(tmp_path / "pv"))[0]
+    assert it["messages"]["belief_right"].endswith(it["gold"] + ".") and "authority_right" in it["messages"]
+    img = tmp_path / "clk" / "a.png"
+    img.parent.mkdir()
+    Image.new("RGB", (32, 32), (1, 2, 3)).save(img)
+    sha = hashlib.sha256(open(img, "rb").read()).hexdigest()
+    rp = tmp_path / "clk" / "record.json"
+    json.dump({"inputs": {"image_path": str(img)}}, open(rp, "w"))
+    nat = tmp_path / "native.jsonl"
+    with open(nat, "w") as f:
+        f.write(json.dumps({"id": "CQ-000", "condition": "neutral", "question": cf.CLOCK_QUESTION, "gold": "6:00:00",
+                            "claim": "7:00:00", "image_sha256": sha, "source_path": str(rp)}) + "\n")
+        f.write(json.dumps({"id": "CQ-900", "condition": "pressure", "question": cf.CLOCK_QUESTION}) + "\n")
+    assert cf.cq_setup(str(nat), str(tmp_path / "cq"), []) == 1
+    c = fpp.load_items(str(tmp_path / "cq"))[0]
+    assert c["image"] == str(img) and c["messages"]["belief"].endswith("7:00:00.") and c["messages"]["belief_right"].endswith("6:00:00.")
+    fpp.observe(Config.load(None, {"backend": "mock"}), str(tmp_path / "pv"), conditions=["belief_right"], limit=1)
+    r = fpp.load_records(str(tmp_path / "pv"), "obs")[0]
+    assert r["condition"] == "belief_right" and r["claim"] == it["gold"]
+    try:
+        cf.run_pairs(Config.load(None, {"backend": "mock"}), src, str(tmp_path / "pv"), str(tmp_path / "cq"), str(tmp_path / "w"))
+        raise AssertionError("缺轨迹或 mock 后端应当报错")
+    except (SystemExit, cf.ConflictCheckFailed):
+        pass
