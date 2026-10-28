@@ -1,0 +1,10 @@
+[fp-conflict-setup] PathVQA 82 题 → /mnt/sdb/linxin/conflict-pv-20261028；例：'are two small pulmonary arterioles packed with laminated swirls of fetal squamous cells?\nI believe the correct answer is yes.'
+Traceback (most recent call last):
+  File "/mnt/sdb/linxin/pathvqa-fp-a800-20261027/repo/run.py", line 286, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/mnt/sdb/linxin/pathvqa-fp-a800-20261027/repo/run.py", line 248, in main
+    fp_conflict.cq_setup(a.native, a.cq, a.image_dirs)
+  File "/mnt/sdb/linxin/pathvqa-fp-a800-20261027/repo/symexp/fp/conflict.py", line 233, in cq_setup
+    raise ConflictCheckFailed(f"{len(missing)} 题找不到 sha256 一致的图像：{missing[:10]}…；请用 --image-dirs 指定 ClockQA 图像所在目录")
+symexp.fp.conflict.ConflictCheckFailed: 62 题找不到 sha256 一致的图像：['CQ-000', 'CQ-001', 'CQ-002', 'CQ-003', 'CQ-004', 'CQ-005', 'CQ-006', 'CQ-007', 'CQ-008', 'CQ-009']…；请用 --image-dirs 指定 ClockQA 图像所在目录
