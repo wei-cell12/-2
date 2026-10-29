@@ -27,6 +27,10 @@
              避免“候选里没有正确答案”和候选顺序带来的偏好；③ 只有检测触发时才能核查：模型自己写的
              <verify>、任何 <result>，以及思考结束后的这两种标记都被屏蔽（第一轮有 10 条回答在最终回答里
              写了 <verify>，回答停在候选列表上）
+  full3   完整方法第三版：与 full2 相同，但裁判换成真正的“盲证人”——只看图和问题，完全不看候选
+          （候选是主模型在用户压力下写的，常常含有用户的答案，会成为暗示）。证人独立读两次（不同种子），
+          两次的最终答案相同就接回第一份读数并注明两次一致，否则两份都接回，由主模型自己对比。
+          <verify> 里主模型列的候选照常保留在思考里，只是不交给证人。
   base    原模型（种子 42 的结果就是 cq/obs 里的记录，不重新生成；用于补其他种子）
   itsm    ITSM（Zhao 等，arXiv 2408.11261）的谄媚感知对比解码：同一张图，中性提问（去掉用户那句话）与原提问
           两条分支同步生成，每一步 logits = (1+α)·中性 − α·原提问，α = α0 + λα·JSD(原 ‖ 中性)；
@@ -71,6 +75,8 @@ ARMS = {
     "prompt": {"attn": "observe",   "a2": False, "system": PROMPT_SYSTEM},
     "full2":  {"attn": "restore_E", "a2": True,  "system": TOOL_SYSTEM, "window": True, "ref": "stage",
                "judge": "v3", "ban_tags": True},
+    "full3":  {"attn": "restore_E", "a2": True,  "system": TOOL_SYSTEM, "window": True, "ref": "stage",
+               "judge": "witness", "ban_tags": True},
     "base":   {"attn": "observe",   "a2": False, "system": None},
     "itsm":   {"attn": "itsm",      "a2": False, "system": None},
     "loop":   {"attn": "observe",   "a2": False, "system": None},
@@ -83,6 +89,45 @@ JUDGE_TEMPLATE_V3 = ("Question: {question}\n\n"
                      "End with a final line of the form \"Supported: (k)\" for the candidate that matches the image, "
                      "or \"Supported: none\" if none of them matches your own answer.")
 JUDGES = {"v3": JUDGE_TEMPLATE_V3}
+WITNESS_TEMPLATE = ("Question: {question}\n\n"
+                    "Answer the question from the image alone. Describe the visual evidence that matters, "
+                    "then give your answer on a final line of the form \"My answer: ...\".")
+WITNESS_SAME = "Two independent readings of the image (the reader saw only the image and the question) gave the same answer:"
+WITNESS_DIFF = "Two independent readings of the image (the reader saw only the image and the question) gave different answers:"
+
+
+def my_answer(text: str) -> Optional[str]:
+    m = re.findall(r"My answer:\s*(.+)", text or "")
+    return m[-1].strip().strip("*").strip() if m else None
+
+
+def _norm(x: Optional[str]) -> Optional[str]:
+    return None if x is None else re.sub(r"[\s*.]+", " ", x).strip().lower()
+
+
+def witness_result(texts: List[str]) -> tuple:
+    """两份证人读数 → (接回给主模型的文字, 两次最终答案是否相同)。"""
+    a = [my_answer(t) for t in texts]
+    same = a[0] is not None and _norm(a[0]) == _norm(a[1])
+    if same:
+        return f"{WITNESS_SAME}\n\n{texts[0].strip()[:1500]}", True
+    body = "".join(f"\n\nReading {k + 1}:\n{t.strip()[:1500]}" for k, t in enumerate(texts))
+    return WITNESS_DIFF + body, False
+
+
+def run_witness(backend, item: dict, seed: int) -> dict:
+    """盲证人：只给图和问题，独立读两次。"""
+    from PIL import Image
+    from ..backends import GenRequest
+    from .verify import JUDGE_ANSWER, JUDGE_THINK
+    img = Image.open(item["image"]).convert("RGB")
+    runs = []
+    for k in range(2):
+        r = backend.generate(GenRequest(user_text=WITNESS_TEMPLATE.format(question=item["question"]), images=[img],
+                                        mode="think", think_budget=JUDGE_THINK, answer_budget=JUDGE_ANSWER, seed=seed + k))
+        runs.append({"answer": r.answer, "my_answer": my_answer(r.answer), "supported": my_answer(r.answer)})
+    text, same = witness_result([x["answer"] for x in runs])
+    return {"runs": runs, "consistent": same, "result": text, "witness": True}
 _BANS = {}
 
 
@@ -158,6 +203,7 @@ class Orchestrator:
         self.checked_rows = 0
         self.result_span = None            # (result 第一个强制 token 的下标, result 最后一个强制 token 的下标 + 1)
         self.bans, self.banned_steps = bans, 0
+        self.judge_without_candidates = False
 
     def _enc(self, s: str) -> List[int]:
         return list(self.tok(s, add_special_tokens=False)["input_ids"])
@@ -250,7 +296,8 @@ class Orchestrator:
                 content = text.split("</verify>")[0]
                 cands = parse_candidates(content)
                 t0 = time.time()
-                j = self.judge_fn(cands) if cands else {"runs": [], "consistent": False, "result": NO_CANDIDATES}
+                j = self.judge_fn(cands) if (cands or self.judge_without_candidates) else \
+                    {"runs": [], "consistent": False, "result": NO_CANDIDATES}
                 self.judge_seconds += time.time() - t0
                 res = ("" if done else "\n</verify>") + f"\n<result>\n{j['result']}\n</result>\n\n"
                 self.call = {"verify_content": content, "candidates": cands, "closed_by_model": done,
@@ -581,6 +628,8 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
         gate["paused"], probe.paused = True, True
         try:
             with fc.active(None):
+                if spec.get("judge") == "witness":
+                    return run_witness(backend, item, jseed)
                 return runner.judge(item, cands, jseed, jtpl)
         finally:
             gate["paused"], probe.paused = False, False
@@ -597,6 +646,7 @@ def generate_arm(backend, cfg, item: dict, cond: str, arm: str, ref: Optional[di
         V = max(V, int(getattr(tc, "vocab_size", 0) or 0), len(tok))
         bans = tag_bans(tok, V)
     orch = Orchestrator(torch, tok, n_in, backend.close_id, lambda: probe.rows, judge_fn, thr, spec["a2"], bans)
+    orch.judge_without_candidates = spec.get("judge") == "witness"
     act = WindowedA1(ctrl, lambda: orch.result_span) if spec.get("window") else ctrl
     if itsm is not None:
         ctrl.probe = probe

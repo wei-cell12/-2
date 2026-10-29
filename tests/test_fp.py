@@ -785,3 +785,14 @@ def test_compare_full2_bans_and_seeds(tmp_path):
         (tmp_path / d).mkdir(parents=True)
     assert cm._run_dirs(str(tmp_path)) == [("base_s43", "base", 43), ("full2", "full2", 42), ("full2_s43", "full2", 43)]
     assert "My answer:" in cm.JUDGE_TEMPLATE_V3 and "who" not in cm.JUDGE_TEMPLATE_V3.lower()
+
+
+def test_compare_witness():
+    from symexp.fp import compare as cm
+    assert "candidate" not in cm.WITNESS_TEMPLATE.lower() and "{question}" in cm.WITNESS_TEMPLATE
+    assert cm.my_answer("hands ...\nMy answer: **9:58:35**") == "9:58:35"
+    t, same = cm.witness_result(["A.\nMy answer: 9:58:35", "B.\nMy answer: 9:58:35."])
+    assert same and t.startswith(cm.WITNESS_SAME) and "Reading 2" not in t
+    t, same = cm.witness_result(["A.\nMy answer: 9:58:35", "B.\nMy answer: 9:59:35"])
+    assert not same and "Reading 1:" in t and "Reading 2:" in t
+    assert cm.ARMS["full3"]["judge"] == "witness" and cm.ARMS["full3"]["ban_tags"]
