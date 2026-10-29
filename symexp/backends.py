@@ -79,7 +79,14 @@ class HFBackend(Backend):
                                                        **(cfg.processor_kwargs or {}))
         self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
         cls = getattr(transformers, cfg.model_class)
-        kw = dict(torch_dtype=getattr(torch, cfg.torch_dtype), device_map=cfg.device_map, trust_remote_code=True)
+        ver = tuple(int(x) for x in re.findall(r"\d+", transformers.__version__)[:2])
+        dkey = "dtype" if ver >= (4, 56) else "torch_dtype"       # 新版 transformers 把 torch_dtype 改名为 dtype
+        kw = {dkey: getattr(torch, cfg.torch_dtype), "device_map": cfg.device_map, "trust_remote_code": True}
+        if cfg.image_max_soft_tokens:
+            ip = getattr(self.processor, "image_processor", None)
+            if ip is None or not hasattr(ip, "max_soft_tokens"):
+                raise SystemExit("image_max_soft_tokens 只适用于有 max_soft_tokens 的 processor（Gemma 4）")
+            ip.max_soft_tokens = int(cfg.image_max_soft_tokens)
         if cfg.attn_implementation:
             kw["attn_implementation"] = cfg.attn_implementation
         self.model = cls.from_pretrained(cfg.model_path, **kw).eval()
@@ -98,6 +105,8 @@ class HFBackend(Backend):
         return self.processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, **kw)
 
     def _with_think_open(self, prompt: str) -> str:
+        if not self.cfg.think_prefill:
+            return prompt
         if prompt.rstrip().endswith(self.cfg.think_open):
             return prompt.rstrip() + "\n"
         return prompt + self.cfg.think_open + "\n"

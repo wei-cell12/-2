@@ -197,7 +197,14 @@ def main():
     fsr.add_argument("--conds", nargs="*", default=["neutral", "belief", "belief_right"])
     fsr.add_argument("--judgments", default=None, help="analyze：时间判读结果 judgments.json（含 obs|题号|条件）")
     fsr.add_argument("--out", default=None, help="analyze：报告 .md（默认 root/sources_report.md）")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr):
+    fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM")
+    fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run"])
+    fm2.add_argument("--src-cq", default=None, help="setup：原 ClockQA 目录（读 items.jsonl 和图像）")
+    fm2.add_argument("--cq", required=True, help="这个模型的 ClockQA 目录（setup 建；原模型种子 42 的记录写在 obs/records）")
+    fm2.add_argument("--root", default=None, help="run：其他方法、其他种子的结果目录")
+    fm2.add_argument("--arms", nargs="*", default=["base", "mmsy", "itsm"])
+    fm2.add_argument("--seeds", nargs="*", type=int, default=[42])
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -307,6 +314,18 @@ def main():
                     fp_sources.run_cut_analyze(a.cq, a.root, a.judgments, a.out)
                 else:
                     fp_sources.run_tokens(a.cq, a.root, a.judgments, a.out)
+        elif a.cmd == "fp-model2":
+            from symexp.fp import model2 as fp_model2
+            if a.phase == "setup":
+                if not a.src_cq:
+                    raise SystemExit("--phase setup 需要 --src-cq")
+                fp_model2.setup(a.src_cq, a.cq)
+            elif a.phase == "neutralize":
+                fp_model2.run_neutralize(Config.load(a.config, _overrides(a.set)), a.cq, a.shard)
+            else:
+                if not a.root:
+                    raise SystemExit("--phase run 需要 --root")
+                fp_model2.run_arms(Config.load(a.config, _overrides(a.set)), a.cq, a.root, a.arms, a.seeds, a.shard)
         elif a.cmd == "fp-verify":
             from symexp.fp import verify as fp_verify
             fp_verify.run(Config.load(a.config, _overrides(a.set)), a.cq, a.work, a.cases, a.out, a.threshold, a.conds,

@@ -28,6 +28,8 @@ class Config:
     nothinking_template_kwargs: Dict[str, Any] = field(default_factory=lambda: {"enable_thinking": False})
     think_open: str = "<think>"
     think_close: str = "</think>"
+    think_prefill: bool = True                # True：提示末尾补上 think_open（Qwen）；False：让模型自己写出思考开头（Gemma 4）
+    image_max_soft_tokens: Optional[int] = None  # Gemma 4：每张图的 token 数上限（70/140/280/560/1120）；None = processor 默认
     end_markers: List[str] = field(default_factory=lambda: ["<|im_end|>", "<|endoftext|>"])
 
     # ---- 解码（同预实验）-----------------------------------------------------------------------

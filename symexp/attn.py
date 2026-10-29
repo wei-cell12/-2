@@ -258,7 +258,8 @@ def image_token_id(backend) -> int:
             v = getattr(obj, name, None) if obj is not None else None
             if isinstance(v, int):
                 return v
-    return backend.tokenizer.convert_tokens_to_ids("<|image_pad|>")
+    tok = getattr(backend.processor, "image_token", None) or "<|image_pad|>"   # Gemma 4：<|image|>
+    return backend.tokenizer.convert_tokens_to_ids(tok)
 
 
 def merge_size(backend) -> int:

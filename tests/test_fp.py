@@ -1096,3 +1096,74 @@ def test_sources_cut_specs_and_analyze(tmp_path):
     r = [x for x in res["tables"]["induced_minus_correct"] if x["cut"] == "C0" and x["class"] == "指针数字"][0]
     assert r["n"] == 4 and abs(r["mean"] + 2.5) < 1e-5 and r["neg"] == 1.0
     assert res["records"]["CQ-000__belief"]["flip"]["hand_induced"]["C0"] == 1.0
+
+
+def test_model2_pure(tmp_path):
+    from symexp.fp import model2 as m2
+    vocab = {1: "thought\n", 2: "The hour hand", 3: " is at 7.", 9: "", 4: "The time is ", 5: "7:05:00"}
+    dec = lambda ids: "".join(vocab[i] for i in ids)
+    th, ans, close = m2.split_output(dec, [1, 2, 3, 9, 4, 5], 9, "<|channel>thought")
+    assert th == "The hour hand is at 7." and ans == "The time is 7:05:00" and close == 3
+    th, ans, close = m2.split_output(dec, [2, 3], 9, "<think>")
+    assert th == "The hour hand is at 7." and ans == "" and close is None
+    it = {"gold": "7:05:00", "claim": "2:33:10", "question": "What time is shown on the clock in the given image?"}
+    assert m2.neutral_leak("What time is shown on the clock in the given image?", it, "belief") == \
+        {"has_claim_time": False, "has_opinion_words": False, "keeps_question": True}
+    lk = m2.neutral_leak("What time is shown on the clock in the given image? I believe it is 2:33:10.", it, "belief")
+    assert lk["has_claim_time"] and lk["has_opinion_words"]
+    assert m2.neutral_leak("What time? Is it 7:05?", it, "belief_right")["has_claim_time"]
+    img = np.arange(10, 20)
+    assert list(m2.image_key_index(img, 30, 30)) == list(range(10, 20))
+    assert list(m2.image_key_index(img, 1040, 1024)) == [0, 1, 2, 3]       # 位置 16–19 还在窗口里
+    assert len(m2.image_key_index(img, 2000, 1024)) == 0
+    # setup：复制图像、改路径、核对 sha256
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    p = src / "a.jpg"
+    p.write_bytes(b"xyz")
+    import hashlib
+    h = hashlib.sha256(b"xyz").hexdigest()
+    msgs = {c: "q" for c in m2.CONDS_BASE}
+    with open(src / "items.jsonl", "w") as f:
+        f.write(json.dumps({"id": "CQ-000", "image": str(p), "image_sha256": h, "gold": "1:00", "claim": "2:00",
+                            "question": "q", "messages": msgs}) + "\n")
+    assert m2.setup(str(src), str(dst)) == 1
+    it2 = json.loads(open(dst / "items.jsonl").read())
+    assert it2["image"].startswith(str(dst)) and open(it2["image"], "rb").read() == b"xyz"
+
+
+def test_model2_mmsy_matches_sdpa():
+    import pytest
+    torch = pytest.importorskip("torch")
+    from symexp.fp import model2 as m2
+    g = torch.Generator().manual_seed(0)
+    H, Hk, D, K = 8, 4, 16, 40
+
+    def sdpa(module, q, k, v, mask, *a, **kw):
+        k2, v2 = k.repeat_interleave(H // Hk, 1), v.repeat_interleave(H // Hk, 1)
+        o = torch.nn.functional.scaled_dot_product_attention(q, k2, v2, scale=kw.get("scaling"))
+        return o.transpose(1, 2), None
+
+    class Mod:
+        pass
+    q = torch.randn(1, H, 1, D, generator=g)
+    k = torch.randn(1, Hk, K, D, generator=g)
+    v = torch.randn(1, Hk, K, D, generator=g)
+    c0 = m2.MMSY2(torch, np.arange(5, 15), layers=[3], lam=0.0)
+    full = {"layer": 2, "sliding": False}
+    c0.attention(sdpa, full, Mod(), q, k, v, None, scaling=0.25)          # 全局层：记下总长度 K
+    out0, _ = c0.attention(sdpa, {"layer": 3, "sliding": False}, Mod(), q, k, v, None, scaling=0.25)
+    ref = sdpa(None, q, k, v, None, scaling=0.25)[0]
+    assert torch.allclose(out0.float(), ref.float(), atol=1e-4)           # λ=0 时与原函数一致
+    c1 = m2.MMSY2(torch, np.arange(5, 15), layers=[3], lam=0.9)
+    c1.attention(sdpa, full, Mod(), q, k, v, None, scaling=0.25)
+    c1.attention(sdpa, {"layer": 3, "sliding": False}, Mod(), q, k, v, None, scaling=0.25)
+    s = c1.summary()
+    assert s["image_mass_after"] != s["image_mass_before"] and s["selfcheck_ratio_max"] <= 1.0
+    # 滑动窗口层：key 只有最后 20 个位置（20–39），图像 5–14 已滑出窗口，不改
+    c2 = m2.MMSY2(torch, np.arange(5, 15), layers=[3], lam=0.9)
+    c2.attention(sdpa, full, Mod(), q, k, v, None, scaling=0.25)
+    ks, vs = k[:, :, 20:], v[:, :, 20:]
+    o2, _ = c2.attention(sdpa, {"layer": 3, "sliding": True}, Mod(), q, ks, vs, None, scaling=0.25)
+    assert torch.allclose(o2.float(), sdpa(None, q, ks, vs, None, scaling=0.25)[0].float(), atol=1e-5)
+    assert c2.summary()["calls_image_out_of_window"] == 1
