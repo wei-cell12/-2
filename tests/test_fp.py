@@ -1167,3 +1167,39 @@ def test_model2_mmsy_matches_sdpa():
     o2, _ = c2.attention(sdpa, {"layer": 3, "sliding": True}, Mod(), q, ks, vs, None, scaling=0.25)
     assert torch.allclose(o2.float(), sdpa(None, q, ks, vs, None, scaling=0.25)[0].float(), atol=1e-5)
     assert c2.summary()["calls_image_out_of_window"] == 1
+
+
+def test_sources_prompt_heads(tmp_path):
+    from symexp.fp import sources as sr
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    (root / "prompt").mkdir(parents=True)
+    (root / "refs").mkdir()
+    cq.mkdir()
+    g = np.random.default_rng(0)
+    n = 9
+    items = []
+    for k in range(5):
+        iid = f"CQ-{k:03d}"
+        items.append({"id": iid, "gold": "1:00:00", "claim": "2:00:00", "image": "x.jpg", "messages": {}})
+        E = np.zeros((2, 16, 24, n), bool)
+        E[..., :2] = True
+        heads = np.zeros((16, 24), bool)
+        heads[:4] = True
+        np.savez(root / "refs" / f"{iid}.npz", E_mask=E, heads=heads, n_img=np.array(n))
+        base = g.random((16, 24, n)).astype(np.float32)
+        for c in sr.CONDS:
+            qc = np.array([1, 1, 3, 2, 2, 3, 4] if c != "neutral" else [1, 1, 4], np.int8)
+            patch = np.repeat(base[None], len(qc), 0).copy()
+            if c == "belief":
+                patch[-1, 5, 7, :2] *= 0.05                                  # 只有一个头在最后一个 token 上少看关键区域
+            np.savez(root / "prompt" / f"{iid}__{c}.npz", patch=patch.astype(np.float16), qcats=qc,
+                     mass=np.full((len(qc), 16, 24, 5), 0.2, np.float16))
+    with open(cq / "items.jsonl", "w") as f:
+        for it in items:
+            f.write(json.dumps(it) + "\n")
+    res = sr.run_prompt_heads(str(cq), str(root))
+    c = res["comparisons"]["last：belief vs belief_right"]
+    assert c["top10"][0]["layer"] == LAYERS[5] and c["top10"][0]["head"] == 7 and c["top10"][0]["dE"] < 0
+    assert c["top10"][0]["neg_share"] == 1.0
+    q = np.array(res["comparisons"]["question：neutral vs belief"]["js_mean_by_head"])
+    assert q.max() < 1e-6

@@ -1456,3 +1456,156 @@ def run_cut_analyze(cq: str, root: str, judgments: str, out_md: Optional[str] = 
     _atomic_json(out_json, res)
     print(f"[fp-sources cut-analyze] {len(R)} 条 → {out_md}、{out_json}；缺 {len(missing)} 条", file=sys.stderr)
     return res
+
+
+# ---------------------------------------------------------------- 读提示阶段：逐头比较看图位置（不在头之间平均）
+"""prompt-heads：用 prompt 阶段存下的注意力（每个 token × 16 层 × 24 头 × 169 图像块），在每个（层, 头）上分别算
+两种条件之间“看图位置”的 JSD（图像内部归一化后的分布），不在头之间平均。
+
+比较的 token 组（位置在不同条件之间是对齐的）：
+  last        提示最后一个 token（模型开始写字前那一刻）：中性 vs 说错、中性 vs 说对、说错 vs 说对
+  claim_time  断言里的时间数字（组内先平均）：说错 vs 说对
+  claim_line  断言整句：说错 vs 说对
+  question    题目 token：中性 vs 说错（题目在断言之前，按因果注意力应完全相同，差应为 0，作为核对）
+  参照        同一条提示里，时间数字 vs 题目 token（两种完全不同的 token）的 JSD，用来给大小一个尺度
+
+每个头还给出“关键区域（E，指针附近）比例”在两种条件之间的变化，以及这个变化在各题之间方向是否一致
+（符号翻转检验，按 384 个头做 Benjamini–Hochberg 校正）。
+"""
+
+
+def _bh(p: np.ndarray, q: float = 0.05) -> np.ndarray:
+    p = np.asarray(p, float)
+    n = len(p)
+    order = np.argsort(p)
+    thr = q * (np.arange(1, n + 1) / n)
+    ok = p[order] <= thr
+    k = int(np.max(np.nonzero(ok)[0]) + 1) if ok.any() else 0
+    out = np.zeros(n, bool)
+    out[order[:k]] = True
+    return out
+
+
+def _signflip_p(x: np.ndarray, reps: int = 20000, seed: int = 0) -> float:
+    x = np.asarray(x, float)
+    x = x[x != 0]
+    if len(x) < 2:
+        return 1.0
+    obs = abs(x.sum())
+    rng = np.random.default_rng(seed)
+    s = rng.choice([-1.0, 1.0], size=(reps, len(x)))
+    return float((1 + (np.abs(s @ x) >= obs - 1e-12).sum()) / (reps + 1))
+
+
+def _signflip_many(X: np.ndarray, reps: int = 20000, seed: int = 0) -> np.ndarray:
+    """X：[题数, 头数]。每一列一个符号翻转检验（双侧），所有列共用同一组随机符号。"""
+    X = np.asarray(X, float)
+    rng = np.random.default_rng(seed)
+    S = rng.choice([-1.0, 1.0], size=(reps, X.shape[0]))
+    obs = np.abs(X.sum(0))
+    null = np.abs(S @ X)                                                   # [reps, 头数]
+    return (1 + (null >= obs[None] - 1e-12).sum(0)) / (reps + 1)
+
+
+def run_prompt_heads(cq: str, root: str, out_md: Optional[str] = None, out_json: Optional[str] = None) -> dict:
+    from .compare import _reference
+    from .conflict import _items
+    from .pipeline import _atomic_json
+    items = _items(cq)
+    d = os.path.join(root, "prompt")
+    comps = [("last", "neutral", "belief"), ("last", "neutral", "belief_right"), ("last", "belief", "belief_right"),
+             ("claim_time", "belief", "belief_right"), ("claim_line", "belief", "belief_right"),
+             ("question", "neutral", "belief")]
+    JS = {c: [] for c in comps}
+    DE = {c: [] for c in comps}
+    REF = []                                                               # 时间数字 vs 题目（同一条说错提示里）
+    used, heads_any = [], None
+    for iid in sorted(items):
+        st = {}
+        for c in CONDS:
+            p = os.path.join(d, f"{iid}__{c}.npz")
+            if not os.path.exists(p):
+                break
+            with np.load(p) as z:
+                st[c] = z["patch"].astype(np.float32), z["qcats"].astype(int)
+        if len(st) < 3:
+            continue
+        ref = _reference(cq, root, iid)
+        E = np.asarray(ref["E_mask"][0], np.float32)
+        heads_any = np.asarray(ref["heads"], bool) if heads_any is None else heads_any | np.asarray(ref["heads"], bool)
+        grp = {}
+        for c, (P, qc) in st.items():
+            P = P / np.maximum(P.sum(-1, keepdims=True), 1e-12)
+            last = np.zeros(len(qc), bool)
+            last[-1] = True
+            sel = {"last": last, "question": (qc == 1) & ~last, "claim_time": (qc == 2) & ~last,
+                   "claim_line": ((qc == 2) | (qc == 3)) & ~last}
+            grp[c] = {g: P[s].mean(0) for g, s in sel.items() if s.any()}      # [L, H, n]
+        for comp in comps:
+            g, a, b = comp
+            if g not in grp[a] or g not in grp[b]:
+                continue
+            x, y = grp[a][g], grp[b][g]
+            JS[comp].append(_js_rows(x, y))                                # [L, H]
+            DE[comp].append((x * E).sum(-1) - (y * E).sum(-1))             # [L, H]，a − b
+        REF.append(_js_rows(grp["belief"]["claim_time"], grp["belief"]["question"]))
+        used.append(iid)
+    L = ["# 读提示阶段：逐头比较看图位置（每个层、每个头单独算，不在头之间平均）", "",
+         f"用了 {len(used)} 题。JSD 在图像内部归一化后的分布上算（上限 ln2≈0.69）；每个头先在题之间平均。"
+         "E 比例 = 看图部分里落在关键区域（该题中性回答思考时看图头最集中的 20% 图像块，指针附近）的比例。", "",
+         "## 1. 384 个头的 JSD 分布（每个头先对题平均）", "",
+         "| 比较 | 中位数 | 前 25% 的边界 | 前 5% 的边界 | 最大 | 最大的那个头（层, 头） | 看图头里的中位数 |",
+         "|---|---|---|---|---|---|---|"]
+    res = {"items": used, "comparisons": {}}
+    ref_m = np.mean(REF, 0) if REF else None
+    for comp in comps:
+        if not JS[comp]:
+            continue
+        m = np.mean(JS[comp], 0)                                           # [L, H]
+        flat = m.ravel()
+        li, hi = np.unravel_index(int(np.argmax(m)), m.shape)
+        name = f"{comp[0]}：{comp[1]} vs {comp[2]}"
+        hv = m[heads_any] if heads_any is not None else flat
+        L.append(f"| {name} | {np.median(flat):.4f} | {np.quantile(flat, .75):.4f} | {np.quantile(flat, .95):.4f} | "
+                 f"{flat.max():.4f} | ({LAYERS[li]}, {hi}) | {np.median(hv):.4f} |")
+        res["comparisons"][name] = {"js_mean_by_head": m.tolist()}
+    if ref_m is not None:
+        f = ref_m.ravel()
+        L.append(f"| 参照：说错提示里 时间数字 vs 题目 token | {np.median(f):.4f} | {np.quantile(f, .75):.4f} | "
+                 f"{np.quantile(f, .95):.4f} | {f.max():.4f} | — | — |")
+        res["reference_js_by_head"] = ref_m.tolist()
+    for comp in [c for c in comps if c[0] != "question" and JS[c]]:
+        m = np.mean(JS[comp], 0)
+        de = np.array(DE[comp])                                            # [items, L, H]
+        ps = _signflip_many(de.reshape(de.shape[0], -1)).reshape(de.shape[1:])
+        sig = _bh(ps.ravel()).reshape(ps.shape)
+        name = f"{comp[0]}：{comp[1]} vs {comp[2]}"
+        order = np.argsort(-m.ravel())[:10]
+        L += ["", f"## 2. {name}：JSD 最大的 10 个头", "",
+              f"E 比例变化 = {comp[1]} − {comp[2]}（负 = 前者落在指针附近更少）；“方向一致” = 各题里 E 比例变化为负的比例。", "",
+              "| 层 | 头 | 是否看图头 | 平均 JSD | 参照 JSD（数字 vs 题目） | E 比例平均变化 | 方向一致（变化 < 0 的题） | p | BH 校正后显著 |",
+              "|---|---|---|---|---|---|---|---|---|"]
+        top = []
+        for k in order:
+            l, h = np.unravel_index(int(k), m.shape)
+            x = de[:, l, h]
+            row = {"layer": LAYERS[l], "head": int(h), "image_head": bool(heads_any[l, h]) if heads_any is not None else None,
+                   "js": float(m[l, h]), "ref_js": float(ref_m[l, h]) if ref_m is not None else None,
+                   "dE": float(x.mean()), "neg_share": float((x < 0).mean()), "p": float(ps[l, h]), "bh": bool(sig[l, h])}
+            top.append(row)
+            L.append(f"| {row['layer']} | {h} | {'是' if row['image_head'] else '否'} | {row['js']:.4f} | "
+                     f"{_fmt(row['ref_js'], 4)} | {row['dE']:+.4f} | {row['neg_share']:.2f} | {_fmt(row['p'], 4)} | "
+                     f"{'是' if row['bh'] else '否'} |")
+        n_sig = int(sig.sum())
+        neg = int((sig & (de.mean(0) < 0)).sum())
+        L += ["", f"全部 384 个头里，E 比例变化在各题之间方向一致、BH 校正后显著的头：{n_sig} 个"
+                  f"（其中 {neg} 个是 {comp[1]} 落在指针附近更少，{n_sig - neg} 个是更多）。"]
+        res["comparisons"][name].update(top10=top, n_sig=n_sig, n_sig_less_E=neg,
+                                        dE_mean_by_head=de.mean(0).tolist(), p_by_head=ps.tolist())
+    out_md = out_md or os.path.join(root, "prompt_heads_report.md")
+    out_json = out_json or os.path.join(root, "prompt_heads_summary.json")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    _atomic_json(out_json, res)
+    print(f"[fp-sources prompt-heads] {len(used)} 题 → {out_md}、{out_json}", file=sys.stderr)
+    return res
