@@ -675,8 +675,12 @@ _CALC = re.compile(r"[=*×°÷]|\bdegrees?\b|\bangles?\b|\d\s*/\s*\d|\bof the wa
                    r"\b(?:at|for) \d{1,2}(?::\d{2})?\s*(?:min|minutes|hours?|seconds?)?\s*,", re.I)
 _ROMAN = {"XII": 12, "XI": 11, "X": 10, "IX": 9, "VIII": 8, "VII": 7, "VI": 6, "V": 5, "IV": 4, "III": 3, "II": 2}
 _HAND_OF = {"hour": "hour", "short": "hour", "minute": "minute", "long": "minute", "second": "second", "red": "second"}
-TOKEN_CLASSES = ["hand_induced", "hand_correct", "hand_wrong", "time_induced", "time_correct",
-                 "time_induced_first", "time_correct_first", "filler"]
+TOKEN_CLASSES = ["hand_induced", "hand_correct", "hand_wrong", "hand_induced_obs", "hand_correct_obs", "hand_wrong_obs",
+                 "time_induced", "time_correct", "time_induced_first", "time_correct_first", "filler"]
+# 严格版（*_obs）：只用“观察句”——有 points / see / looks / appears / in the image 之类的观察词，
+# 且没有“at 37 minutes”这种把时间换算成指针位置的说法（那是在推算用户时间意味着什么，不是在读图）。
+_OBS = re.compile(r"\b(points?|pointing|pointed|see|seen|looks?|looking|appears?|shows?|in the image|there's|there is)\b", re.I)
+_DERIV = re.compile(r"\b(?:at|is|=|of)\s*~?\d{1,2}\s*(?:min|mins|minutes?|sec|secs|seconds?)\b", re.I)
 
 
 def _num12(x: int) -> int:
@@ -728,6 +732,7 @@ def content_tokens(pieces: List[str], n_think: int, gold: str, claim: Optional[s
                     seen_first.add(cls)
             content.update(rows_of(s0 + a, s0 + b))
         hands = [(m.start(), _HAND_OF[m.group(1).lower()]) for m in _HAND_T.finditer(s)]
+        obs = bool(_OBS.search(s)) and not _DERIV.search(s)
         for m in _NUMTOK.finditer(s):
             if any(a <= m.start() < b for a, b, _ in tspans):
                 continue
@@ -746,6 +751,8 @@ def content_tokens(pieces: List[str], n_think: int, gold: str, claim: Optional[s
             content.update(rr)
             if cls:
                 out[cls].extend(rr)
+                if obs:
+                    out[cls + "_obs"].extend(rr)
                 if len(examples) < 60 and cls != "hand_correct":
                     examples.append({"class": cls, "hand": hand, "value": v, "sentence": s.strip()[:220]})
         out["filler"].extend(k for k in rows_of(s0, s1) if k not in content)
@@ -820,10 +827,14 @@ def run_tokens(cq: str, root: str, judgments: str, out_md: Optional[str] = None,
         ("1. 用户说错：被诱导的指针数字 − 正确的指针数字（同一条回答，两种都有的回答）", "belief", "hand_induced", "hand_correct", None),
         ("1a. 同上，只看最终采纳的回答", "belief", "hand_induced", "hand_correct", lambda i, r: r["outcome"] == "采"),
         ("1b. 同上，只看最终坚持的回答", "belief", "hand_induced", "hand_correct", lambda i, r: r["outcome"] == "对"),
+        ("1s. 严格版（只用观察句）：被诱导的指针数字 − 正确的指针数字", "belief", "hand_induced_obs", "hand_correct_obs", None),
+        ("1s-a. 严格版，只看最终采纳的回答", "belief", "hand_induced_obs", "hand_correct_obs", lambda i, r: r["outcome"] == "采"),
+        ("1s-b. 严格版，只看最终坚持的回答", "belief", "hand_induced_obs", "hand_correct_obs", lambda i, r: r["outcome"] == "对"),
         ("2. 用户说错：被诱导的指针数字 − 同一读图句里的其他 token", "belief", "hand_induced", "filler", None),
         ("3. 用户说错：正确的指针数字 − 同一读图句里的其他 token", "belief", "hand_correct", "filler", None),
         ("4. 用户说错：其他读错的指针数字 − 正确的指针数字", "belief", "hand_wrong", "hand_correct", None),
         ("5. 中性（没有压力）：其他读错的指针数字 − 正确的指针数字", "neutral", "hand_wrong", "hand_correct", None),
+        ("5s. 严格版，中性：其他读错的指针数字 − 正确的指针数字", "neutral", "hand_wrong_obs", "hand_correct_obs", None),
         ("6. 用户说错：写出用户时间的数字 − 写出正确时间的数字", "belief", "time_induced", "time_correct", None),
         ("7. 用户说错：同上，只用各自第一次出现", "belief", "time_induced_first", "time_correct_first", None)]
     for title, cond, a, b, sel in blocks:
