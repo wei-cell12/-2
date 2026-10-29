@@ -1067,6 +1067,7 @@ def test_sources_cut_specs_and_analyze(tmp_path):
     assert S["A"]["q"][9] and S["A"]["q"][13] and not S["A"]["q"][14] and not S["A"]["q"][8]
     assert S["C0"]["q"][[6, 7]].all() and S["C0"]["q"].sum() == 2 and S["C0"]["k"][[1, 2]].all()
     assert S["D"]["q"][9] and not S["D"]["q"][8] and S["C1"]["q"][[3, 4, 5, 6, 7, 8]].all()
+    assert S["Cq"]["qref"][5] and S["Cq"]["qref"].sum() == 1                # 只用时间之前的 “I believe the correct answer is”
     cq, root = tmp_path / "cq", tmp_path / "root"
     (root / "cut").mkdir(parents=True)
     cq.mkdir()

@@ -1152,7 +1152,7 @@ def run_prompt_analyze(cq: str, root: str, out_md: Optional[str] = None, out_jso
   Qctl      所有输出位置的查询                    题目                                       全部（对照：切掉一段相近长度的别的文字）
   A1        所有输出位置的查询                    用户这一轮全部文字（题目 + 断言整句）      96 个看图头
   D         断言整句之后的所有位置（含模板、写字）断言整句（相当于删掉它的 KV）              全部（上限参考）
-  Cq        断言里的时间数字（读提示时）          图像注意力降到同一提示里题目 token 的平均（每层每头）  全部
+  Cq        断言里的时间数字（读提示时）          图像注意力降到同一句里“I believe the correct answer is”那几个 token 的平均（每层每头）  全部
   Chalf     断言里的时间数字（读提示时）          图像注意力降到原来的一半                   全部
   C0        断言里的时间数字（读提示时）          图像（置 0）                               全部
   C1        用户这一轮全部文字（读提示时）        图像（置 0）                               全部
@@ -1213,7 +1213,7 @@ class CutRecorder:
             else:                                                           # scale_ref：降到参照行（题目 token）的平均
                 rm = self._d(self.qref, p.device)[q_pos]
                 if not bool(rm.any()):
-                    raise SourcesCheckFailed("同一块查询里没有题目 token，无法取参照（提示长度超过 attn_chunk）")
+                    raise SourcesCheckFailed("同一块查询里没有参照 token，无法取参照（提示长度超过 attn_chunk）")
                 ref = (p[0][:, rm.nonzero().flatten(), :] * km).sum(-1).mean(1, keepdim=True)   # [H, 1]
                 target = t.minimum(cur, ref.expand_as(cur))
             fi = (target / cur.clamp_min(1e-12))[..., None]
@@ -1247,13 +1247,16 @@ def cut_specs(cats_p: np.ndarray, cats_o: np.ndarray, n_in: int, close: Optional
     if not cline.any():
         raise SourcesCheckFailed("提示里没有断言句")
     after_claim = pos > np.flatnonzero(cline).max()
+    prefix = (catall == 3) & (pos < np.flatnonzero(ctime).min()) if ctime.any() else np.zeros(total, bool)
+    if not prefix.any():
+        raise SourcesCheckFailed("断言句里时间之前没有文字（找不到 I believe the correct answer is）")
     S = {"none": {"kind": "none", "q": np.zeros(total, bool), "k": np.zeros(total, bool)},
          "A": {"kind": "block", "q": gen_q, "k": cline | gclaim},
          "B": {"kind": "block", "q": gen_q, "k": img},
          "Qctl": {"kind": "block", "q": gen_q, "k": ques},
          "A1": {"kind": "block", "q": gen_q, "k": user, "image_heads": True},
          "D": {"kind": "block", "q": after_claim, "k": cline},
-         "Cq": {"kind": "scale_ref", "q": ctime, "k": img, "qref": ques},
+         "Cq": {"kind": "scale_ref", "q": ctime, "k": img, "qref": prefix},
          "Chalf": {"kind": "scale_frac", "q": ctime, "k": img, "frac": 0.5},
          "C0": {"kind": "block", "q": ctime, "k": img},
          "C1": {"kind": "block", "q": user, "k": img}}
@@ -1273,7 +1276,7 @@ def cut_one(backend, cfg, item: dict, cond: str, rec: dict, heads: np.ndarray) -
         raise SourcesCheckFailed(f"{item['id']}__{cond}：重新构造的提示与记录里的 input_ids 不一致")
     n_in = len(in_ids)
     if n_in > cfg.attn_chunk:
-        raise SourcesCheckFailed(f"提示长度 {n_in} 超过 attn_chunk {cfg.attn_chunk}，Cq 取不到同一块里的题目参照")
+        raise SourcesCheckFailed(f"提示长度 {n_in} 超过 attn_chunk {cfg.attn_chunk}，Cq 取不到同一块里的参照")
     out_ids = [int(x) for x in rec["output_ids"]]
     n_out = len(out_ids)
     img_tok = attn.image_token_id(backend)
