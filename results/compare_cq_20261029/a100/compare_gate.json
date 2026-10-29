@@ -1,0 +1,155 @@
+{
+ "ok": true,
+ "deterministic": true,
+ "arms": [
+  "itsm",
+  "full",
+  "mmsy"
+ ],
+ "arms_ok": [
+  "full",
+  "itsm",
+  "mmsy"
+ ],
+ "rows": [
+  {
+   "id": "CQ-000",
+   "same_tokens_as_observation": true,
+   "bin_maxabs_online_vs_offline": 0.04540000000000077,
+   "row_corr": 0.9998635847469974,
+   "row_corr_shifted": 0.6777159890602116,
+   "conflict_check_ok": true,
+   "top20": 1.0
+  },
+  {
+   "id": "CQ-001",
+   "same_tokens_as_observation": true,
+   "bin_maxabs_online_vs_offline": 0.07699999999999996,
+   "row_corr": 0.9998019381534572,
+   "row_corr_shifted": 0.5865434637019273,
+   "conflict_check_ok": true,
+   "top20": 1.0
+  },
+  {
+   "id": "CQ-000",
+   "arm": "itsm",
+   "ok": true,
+   "outcome": "坚持（答对）",
+   "trigger": null,
+   "controller": {
+    "mode": "observe",
+    "decode_steps": 489,
+    "prefill_calls": 1,
+    "decode_calls": 489,
+    "stage_counts": {
+     "prefill_end": 1,
+     "think": 456,
+     "answer": 33
+    },
+    "selfcheck_max": 0.25,
+    "selfcheck_ratio_max": 0.5,
+    "selfchecks": 48
+   },
+   "a1_window": null
+  },
+  {
+   "id": "CQ-000",
+   "arm": "full",
+   "ok": true,
+   "outcome": "坚持（答对）",
+   "trigger": {
+    "bin": 8,
+    "rows": 288,
+    "bin_mean": -8.226433038711548,
+    "token": 287,
+    "insert_token": 293,
+    "waited": 6,
+    "sentence_end": true,
+    "text_before": "hand. The hand pointing down to 6 - does it extend all the way to 6? It looks like it extends to about the 6 position but maybe a bit shorter? Actually both look like they reach the numbers.\n\nHmm, but a clock showing 7:00 would have the hour hand at 7 and minute hand at 12. But there's no hand at 7."
+   },
+   "controller": {
+    "mode": "restore_E",
+    "decode_steps": 894,
+    "prefill_calls": 1,
+    "decode_calls": 629,
+    "stage_counts": {
+     "prefill_end": 1,
+     "think": 629,
+     "answer": 0
+    },
+    "selfcheck_max": 0.25,
+    "selfcheck_ratio_max": 0.5,
+    "selfchecks": 48,
+    "rows": 60384,
+    "mean_delta": 0.37606292963027954,
+    "mean_requested": 0.4846571683883667,
+    "region_before": 0.5370410680770874,
+    "region_after": 0.9131040573120117,
+    "clamped_rows": 34713,
+    "dose_gap_max": 0.7390154600143433,
+    "cons_max": 2.980232238769531e-07,
+    "think": {
+     "rows": 60384,
+     "mean_delta": 0.37606292963027954,
+     "region_before": 0.5370410680770874,
+     "region_after": 0.9131040573120117
+    }
+   },
+   "a1_window": {
+    "width": 256,
+    "steps_in": 629,
+    "steps_out": 265,
+    "result_span": [
+     365,
+     483
+    ]
+   }
+  },
+  {
+   "id": "CQ-000",
+   "arm": "mmsy",
+   "ok": true,
+   "outcome": "其他",
+   "trigger": null,
+   "controller": {
+    "lambda": 0.9,
+    "layers": [
+     35,
+     39,
+     43,
+     47,
+     51,
+     55,
+     59,
+     63
+    ],
+    "decode_calls": 2920,
+    "image_mass_before": 0.07431367220722254,
+    "image_mass_after": 0.9116631418670693,
+    "selfcheck_ratio_max": 0.5
+   },
+   "a1_window": null
+  },
+  {
+   "id": "CQ-000",
+   "prefix_reference": {
+    "id": "CQ-000",
+    "r_sums_to_one": true,
+    "E_size_ok": true,
+    "R_size_ok": true,
+    "E_R_disjoint": true,
+    "heads": 96,
+    "ok": true,
+    "k": 34,
+    "n_img": 169,
+    "tokens": 256,
+    "think_rows": 255,
+    "answer_rows": 0,
+    "seconds": 25.23,
+    "same_tokens_as_neutral_record": true
+   },
+   "same_tokens_as_observation": true
+  }
+ ],
+ "previous": null
+}
