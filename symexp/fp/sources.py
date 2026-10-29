@@ -880,7 +880,8 @@ def run_tokens(cq: str, root: str, judgments: str, out_md: Optional[str] = None,
 对 169 个图像块的注意力（16 层 × 24 头），以及对 5 类提示位置（图像、题干、断言时间、断言其余、模板）的总量。
 
 比较：
-  A. 同一条提示里：题目 token 看图 vs 用户断言 token 看图（看图总量、图像内部分布的 JS、落在关键区域 E 的比例）。
+  A. 同一条提示里：题目 token 看图 vs 用户断言 token 看图（看图总量、图像内部分布的 JS、落在关键区域 E 的比例）；
+     用户断言分三种看：整句话、整句里时间以外的部分、时间本身。
   B. 同一题，用户说错 vs 用户说对：两条提示只有时间数字不同。比较时间数字 token 看图的位置
      （图像、题目完全相同；数字之前的 token 两边完全一样，注意力也必然一样，作为核对）。
      关键区域 E = 该题中性回答思考阶段看图头注意力最高的 20% 图像块（指针所在处）。
@@ -1014,7 +1015,8 @@ def prompt_group_stats(arrays: dict, heads: np.ndarray, E: np.ndarray) -> Dict[s
     qc = arrays["qcats"].astype(int)
     last = np.zeros(len(qc), bool)
     last[-1] = True
-    groups = {"question": (qc == 1) & ~last, "claim_rest": (qc == 3) & ~last, "claim_time": (qc == 2) & ~last, "last": last}
+    groups = {"question": (qc == 1) & ~last, "claim_line": ((qc == 2) | (qc == 3)) & ~last,
+              "claim_rest": (qc == 3) & ~last, "claim_time": (qc == 2) & ~last, "last": last}
     out = {}
     for g, sel in groups.items():
         if not sel.any():
@@ -1049,6 +1051,8 @@ def run_prompt_analyze(cq: str, root: str, out_md: Optional[str] = None, out_jso
     HG = {"看图头": lambda h: h, "全部头": lambda h: np.ones_like(h)}
     L = ["# 读提示阶段：题目 token 与用户断言 token 看图像的情况", "",
          f"提示前向 {len(S)} 条（缺 {len(missing)}）。每个 token 用“读到它那一步”的注意力；各组先在 token 上平均。", "",
+         "- 组：question = 题目；claim_line = 用户整句话（I believe the correct answer is 8:50:59.）；"
+         "claim_rest = 整句里除时间以外的部分；claim_time = 时间本身；last = 提示最后一个 token（开始写字前）",
          "- 看图总量：这一组 token 的注意力里落在 169 个图像块上的总比例",
          "- E 比例：看图的那部分里，落在该题关键区域（中性回答思考时看图头最集中的 20% 图像块，即指针附近）的比例",
          "- JS：两组 token 在图像内部的注意力分布之差（每个头算一次再平均；0 = 完全一样，上限 ln2≈0.69）", ""]
@@ -1069,7 +1073,7 @@ def run_prompt_analyze(cq: str, root: str, out_md: Optional[str] = None, out_jso
     L += ["## 0. 各组 token 的平均值", "", "| 条件 | 头 | 组 | 题数 | 每题 token 数 | 看图总量 | E 比例 |", "|---|---|---|---|---|---|---|"]
     for c in CONDS:
         for hg, hf in HG.items():
-            for g in ("question", "claim_rest", "claim_time", "last"):
+            for g in ("question", "claim_line", "claim_rest", "claim_time", "last"):
                 vs = [(st[g], h) for (i, cc), (st, h) in S.items() if cc == c and g in st]
                 if not vs:
                     continue
@@ -1080,7 +1084,7 @@ def run_prompt_analyze(cq: str, root: str, out_md: Optional[str] = None, out_jso
         L += ["", f"## A. {c}：同一条提示里，用户断言 token − 题目 token", ""] + head
         tab = {}
         for hg, hf in HG.items():
-            for g in ("claim_time", "claim_rest"):
+            for g in ("claim_line", "claim_time", "claim_rest"):
                 dI, dE, js = [], [], []
                 for (i, cc), (st, h) in S.items():
                     if cc != c or g not in st or "question" not in st:
@@ -1103,7 +1107,7 @@ def run_prompt_analyze(cq: str, root: str, out_md: Optional[str] = None, out_jso
           "claim_rest 里有数字之前的 token（两边完全相同，差应为 0，作为核对）和数字之后的句号。", ""] + head
     tab = {}
     for hg, hf in HG.items():
-        for g in ("question", "claim_rest", "claim_time", "last"):
+        for g in ("question", "claim_line", "claim_rest", "claim_time", "last"):
             dI, dE, js = [], [], []
             for i in items:
                 a, b = S.get((i, "belief")), S.get((i, "belief_right"))
