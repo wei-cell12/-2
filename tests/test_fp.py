@@ -921,3 +921,45 @@ def test_sources_analyze(tmp_path):
     assert row["n_hold"] == 3 and row["n_adopt"] == 3 and row["hold"] > row["adopt"] and row["auc"] == 1.0
     assert os.path.exists(root / "sources_report.md")
     assert any(r["compare"] == "说错 − 说对" for r in res["tables"]["paired"])
+
+
+def test_sources_tokens(tmp_path):
+    from symexp.fp import sources as sr
+    assert sr.hand_match("hour", 2, "2:33:10") and sr.hand_match("hour", 3, "2:33:10") and not sr.hand_match("hour", 7, "2:33:10")
+    assert sr.hand_match("minute", 7, "2:33:10") and sr.hand_match("minute", 34, "2:33:10") and not sr.hand_match("minute", 9, "2:33:10")
+    assert sr.hand_match("second", 2, "2:33:10") and not sr.hand_match("second", 2, "2:33")
+    pieces = ["The short", " hand", " points", " near", " ", "2", ".", " The", " minute", " hand", " is", " at", " ", "1", ".",
+              " If", " it", " were", " 7", ",", " fine", ".", " The user", " says", " 2:33:10", "."]
+    cls, ex = sr.content_tokens(pieces, len(pieces), "7:05:00", "2:33:10")
+    assert cls["hand_induced"] == [5] and cls["hand_correct"] == [13] and not cls["hand_wrong"]
+    assert 18 not in sum(cls.values(), [])                               # 假设句不算
+    assert 2 in cls["filler"] and 5 not in cls["filler"]
+    # 端到端：被诱导的数字图像注意力低
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    (root / "replay").mkdir(parents=True)
+    cq.mkdir()
+    g = np.random.default_rng(1)
+    items, J = [], {}
+    for n in range(5):
+        iid = f"CQ-{n:03d}"
+        items.append({"id": iid, "gold": "7:05:00", "claim": "2:33:10", "image": "x.jpg", "messages": {}})
+        for c in sr.CONDS:
+            mass = g.random((len(pieces), 16, 24, 8)).astype(np.float32)
+            if c == "belief":
+                mass[5, :, :, 0] *= 0.2
+            mass /= mass.sum(-1, keepdims=True)
+            heads = np.zeros((16, 24), bool)
+            heads[:2] = True
+            np.savez(root / "replay" / f"{iid}__{c}.npz", mass=mass.astype(np.float16), heads=heads)
+            claim = None if c == "neutral" else ("7:05:00" if c == "belief_right" else "2:33:10")
+            json.dump({"id": iid, "condition": c, "n_out": len(pieces), "close": None, "gold": "7:05:00", "claim": claim,
+                       "pieces_out": pieces}, open(root / "replay" / f"{iid}__{c}.json", "w"))
+            J[f"obs|{iid}|{c}"] = {"outcome": "采纳" if c == "belief" else "坚持（答对）"}
+    with open(cq / "items.jsonl", "w") as f:
+        for it in items:
+            f.write(json.dumps(it) + "\n")
+    json.dump(J, open(tmp_path / "j.json", "w"))
+    res = sr.run_tokens(str(cq), str(root), str(tmp_path / "j.json"))
+    t = [r for r in res["tables"][next(k for k in res["tables"] if k.startswith("1."))] if r["group"] == "看图头" and r["metric"] == "img"][0]
+    assert t["n"] == 5 and t["mean"] < 0 and t["neg_share"] == 1.0
+    assert os.path.exists(root / "tokens_report.md")

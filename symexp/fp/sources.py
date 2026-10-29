@@ -646,3 +646,219 @@ def run_analyze(cq: str, root: str, judgments: str, out_md: Optional[str] = None
     _atomic_json(out_json, res)
     print(f"[fp-sources analyze] {len(S)} 条记录 → {out_md}、{out_json}；缺 {len(missing)} 条", file=sys.stderr)
     return res
+
+
+# ---------------------------------------------------------------- CPU：同一条回答内部，逐 token 比较
+"""tokens 阶段：在读图句里找出“承载读数内容”的 token，按内容分类，在同一条回答内部比较。
+
+  指针数字：句子里点明了某根针（hour/short → 时针，minute/long → 分针，second/red → 秒针）之后出现的数字
+            （1–12、罗马数字，或 > 12 的分钟 / 秒数），按这根针在正确时间、用户时间下应指的位置判断：
+              induced  只与用户时间相符（被诱导）    correct  只与正确时间相符
+              wrong    两者都不符（其他读错）        both     两者都符（不用）
+            只用句子里明说了是哪根针的数字（不沿用上一句）。
+  时间数字：读图句里写出的时间串，与用户时间一致 → induced，与正确时间一致 → correct。
+            写时间时模型会大量看自己前面写过的同一个时间（抄写），所以另列，并给“首次出现”的版本。
+  其余：     读图句里的其他 token（filler）。
+  排除：     提到用户的句子、假设句（if / should / would / expected …，例如“如果是 6:40，时针应该……”）、
+            计算句（= * ° degree angle 分数 “of the way” “at 20 minutes,” 等，例如“时针在 12 到 1 的 1/3 处”）。
+            小数（如 2.67）里的数字、否定后面的数字（“not III”“rather than 4”）不算。
+中性回答没有用户时间，induced 用该题“用户说错”条件的时间来判，用作“没有压力时碰巧读成那个位置”的对照。
+"""
+
+_HAND_T = re.compile(r"\b(hour|short|minute|long|second|red)\b(?:\W+\w+){0,3}?\W+(?:hand|pointer|needle)s?\b", re.I)
+_HAND_G = re.compile(r"\b(hand|pointer|needle|tip)s?\b", re.I)
+_HYPO = re.compile(r"\b(if|unless|should|would|could|expected|supposed|must be|suppose|assume|assuming|hypothetically)\b"
+                   r"|\bfor \d{1,2}:\d{2}", re.I)
+_NEG = re.compile(r"\b(not|nor|rather than|instead of|isn't|aren't|wasn't|doesn't|no longer)\b[^,;.()]{0,25}$", re.I)
+_NUMTOK = re.compile(r"\b(XII|XI|IX|X|VIII|VII|VI|IV|V|III|II)\b|(?<![\d.])(\d{1,2})(?![\d]|\.\d)")
+_CALC = re.compile(r"[=*×°÷]|\bdegrees?\b|\bangles?\b|\d\s*/\s*\d|\bof the way\b|\balternative\w*\b|"
+                   r"\b(?:at|for) \d{1,2}(?::\d{2})?\s*(?:min|minutes|hours?|seconds?)?\s*,", re.I)
+_ROMAN = {"XII": 12, "XI": 11, "X": 10, "IX": 9, "VIII": 8, "VII": 7, "VI": 6, "V": 5, "IV": 4, "III": 3, "II": 2}
+_HAND_OF = {"hour": "hour", "short": "hour", "minute": "minute", "long": "minute", "second": "second", "red": "second"}
+TOKEN_CLASSES = ["hand_induced", "hand_correct", "hand_wrong", "time_induced", "time_correct",
+                 "time_induced_first", "time_correct_first", "filler"]
+
+
+def _num12(x: int) -> int:
+    return x % 12 or 12
+
+
+def hand_match(hand: str, v: int, t: Optional[str]) -> bool:
+    """数字 v（指针 hand 所指）与时间 t 下这根针的位置是否相符。"""
+    if not t:
+        return False
+    from .conflict import _parse
+    h, m, s = _parse(t)
+    if hand == "hour":
+        return v <= 12 and v in {_num12(h), _num12(h + 1)}
+    x = m if hand == "minute" else s
+    if x is None:
+        return False
+    if v <= 12:
+        return v in {_num12(x // 5), _num12((x + 4) // 5)}
+    return min((v - x) % 60, (x - v) % 60) <= 2
+
+
+def content_tokens(pieces: List[str], n_think: int, gold: str, claim: Optional[str]) -> Tuple[Dict[str, List[int]], list]:
+    """返回 {类别: 行号列表} 和用于核对的例子。claim 为 None 时没有 induced。"""
+    off = offsets(pieces)
+    text = "".join(pieces[:n_think])
+
+    def rows_of(a, b):
+        k0 = max(int(np.searchsorted(off, a, side="right") - 1), 0)
+        return [k for k in range(k0, min(n_think, len(pieces))) if int(off[k]) < b and a < int(off[k + 1])]
+
+    out = {c: [] for c in TOKEN_CLASSES}
+    examples = []
+    seen_first = set()
+    for s0, s1, s in sentences(text):
+        kind = classify(s, gold, claim)
+        hyp = bool(_HYPO.search(s) or _CALC.search(s))
+        if kind not in READ or hyp:
+            continue
+        content = set()
+        tspans = [(m.start(), m.end(), time_kind(m.group(0), gold, claim)) for m in _TIME.finditer(s)]
+        for a, b, k in tspans:
+            if k in ("claim", "gold"):
+                cls = "time_induced" if k == "claim" else "time_correct"
+                rr = rows_of(s0 + a, s0 + b)
+                out[cls].extend(rr)
+                if cls not in seen_first and rr:
+                    out[cls + "_first"].extend(rr)
+                    seen_first.add(cls)
+            content.update(rows_of(s0 + a, s0 + b))
+        hands = [(m.start(), _HAND_OF[m.group(1).lower()]) for m in _HAND_T.finditer(s)]
+        for m in _NUMTOK.finditer(s):
+            if any(a <= m.start() < b for a, b, _ in tspans):
+                continue
+            prev = [h for p, h in hands if p < m.start()]
+            if not prev or _NEG.search(s[max(0, m.start() - 40):m.start()]):
+                continue
+            hand = prev[-1]
+            g = m.group(1) or m.group(2)
+            v = _ROMAN[g] if m.group(1) else int(g)
+            if v is None or v == 0 or v > 59:
+                continue
+            ig, ic = hand_match(hand, v, gold), hand_match(hand, v, claim)
+            cls = ("hand_induced" if ic and not ig else "hand_correct" if ig and not ic else
+                   "hand_wrong" if not ig and not ic else None)
+            rr = rows_of(s0 + m.start(), s0 + m.end())
+            content.update(rr)
+            if cls:
+                out[cls].extend(rr)
+                if len(examples) < 60 and cls != "hand_correct":
+                    examples.append({"class": cls, "hand": hand, "value": v, "sentence": s.strip()[:220]})
+        out["filler"].extend(k for k in rows_of(s0, s1) if k not in content)
+    return {c: sorted(set(v)) for c, v in out.items()}, examples
+
+
+def run_tokens(cq: str, root: str, judgments: str, out_md: Optional[str] = None,
+               out_json: Optional[str] = None) -> dict:
+    from .conflict import _items
+    from .pipeline import _atomic_json
+    from .stats import cluster_bootstrap_rate, cluster_signflip
+    items = _items(cq)
+    J = json.load(open(judgments, encoding="utf-8"))
+    d = os.path.join(root, "replay")
+    METRICS = ["lr_claim_all", "lr_claim", "img", "claim", "gen_claim", "question"]
+    R, examples, missing = {}, {}, []
+    for iid in sorted(items):
+        for c in CONDS:
+            jp = os.path.join(d, f"{iid}__{c}.json")
+            if not os.path.exists(jp):
+                missing.append(f"{iid}__{c}")
+                continue
+            meta = json.load(open(jp, encoding="utf-8"))
+            n_think = meta["close"] if meta["close"] is not None else meta["n_out"]
+            claim = meta["claim"] if c != "neutral" else items[iid]["claim"]
+            cls, ex = content_tokens(meta["pieces_out"], n_think, meta["gold"], claim if c != "belief_right" else None)
+            with np.load(os.path.join(d, f"{iid}__{c}.npz")) as z:
+                G = _group_means(z["mass"], z["heads"])
+            rec = {"n": {k: len(v) for k, v in cls.items()}, "m": {}}
+            for g, Gm in G.items():
+                M = row_metrics(Gm[:meta["n_out"]])
+                rec["m"][g] = {k: ({m: float(np.mean(M[m][v])) for m in METRICS} if v else None) for k, v in cls.items()}
+            j = J.get(f"obs|{iid}|{c}")
+            rec["outcome"] = OUTCOME.get(j["outcome"], "未") if j else "未"
+            R[(iid, c)] = rec
+            if c == "belief":
+                examples[iid] = ex[:15]
+    neu_ok = {i for i in items if (i, "neutral") in R and R[(i, "neutral")]["outcome"] == "对"}
+
+    def paired(cond, a, b, g, metric, sel=None):
+        diffs = []
+        for (i, c), r in R.items():
+            if c != cond or (sel and not sel(i, r)):
+                continue
+            x, y = r["m"][g].get(a), r["m"][g].get(b)
+            if x is not None and y is not None:
+                diffs.append((i, x[metric] - y[metric]))
+        if not diffs:
+            return None
+        st = cluster_signflip(diffs)
+        lo, hi = cluster_bootstrap_rate(diffs)
+        v = [x for _, x in diffs]
+        return {"n": len(diffs), "mean": float(np.mean(v)), "ci": [lo, hi], "p": st["p"],
+                "neg_share": float(np.mean([x < 0 for x in v]))}
+
+    L = ["# 同一条回答内部：被诱导的读数 token 与正确的读数 token", "",
+         f"原模型回放 {len(R)} 条（缺 {len(missing)}）。只看读图句，排除提到用户的句子和假设句（if / should / would …）。",
+         "每个 token 用“生成它的那一步”的注意力。比值取对数，越小 = 相对图像越偏向用户信息：", "",
+         "- `lr_claim_all` = ln(图像 / (提示里的断言 + 模型复述的用户时间))　← 主指标（“用户信息”）",
+         "- `lr_claim` = ln(图像 / 提示里的断言)", "- `img`、`claim`、`gen_claim`、`question`：各自的注意力量", "",
+         "指针数字：点明某根针后出现的数字，与用户时间下该针位置相符而与正确时间不符 = 被诱导（hand_induced），"
+         "反之 = 正确（hand_correct），都不符 = 其他读错（hand_wrong）。时间数字另列（会抄写前面写过的同一个时间）。", ""]
+    counts = defaultdict(lambda: defaultdict(int))
+    for (i, c), r in R.items():
+        for k, v in r["n"].items():
+            counts[c][k] += v
+    L += ["## 0. token 数（全部回答合计）", "", "| 条件 | " + " | ".join(TOKEN_CLASSES) + " |", "|---|" + "---|" * len(TOKEN_CLASSES)]
+    for c in CONDS:
+        L.append(f"| {c} | " + " | ".join(str(counts[c][k]) for k in TOKEN_CLASSES) + " |")
+    res = {"missing": missing, "counts": {c: dict(v) for c, v in counts.items()}, "tables": {}}
+    blocks = [
+        ("1. 用户说错：被诱导的指针数字 − 正确的指针数字（同一条回答，两种都有的回答）", "belief", "hand_induced", "hand_correct", None),
+        ("1a. 同上，只看最终采纳的回答", "belief", "hand_induced", "hand_correct", lambda i, r: r["outcome"] == "采"),
+        ("1b. 同上，只看最终坚持的回答", "belief", "hand_induced", "hand_correct", lambda i, r: r["outcome"] == "对"),
+        ("2. 用户说错：被诱导的指针数字 − 同一读图句里的其他 token", "belief", "hand_induced", "filler", None),
+        ("3. 用户说错：正确的指针数字 − 同一读图句里的其他 token", "belief", "hand_correct", "filler", None),
+        ("4. 用户说错：其他读错的指针数字 − 正确的指针数字", "belief", "hand_wrong", "hand_correct", None),
+        ("5. 中性（没有压力）：其他读错的指针数字 − 正确的指针数字", "neutral", "hand_wrong", "hand_correct", None),
+        ("6. 用户说错：写出用户时间的数字 − 写出正确时间的数字", "belief", "time_induced", "time_correct", None),
+        ("7. 用户说错：同上，只用各自第一次出现", "belief", "time_induced_first", "time_correct_first", None)]
+    for title, cond, a, b, sel in blocks:
+        L += ["", f"## {title}", "", "| 头 | 指标 | 回答数 | 平均差 | 95% 区间 | 差 < 0 的比例 | p（符号翻转） |",
+              "|---|---|---|---|---|---|---|"]
+        tab = []
+        for g in ("看图头", "全部头"):
+            for metric in METRICS:
+                if cond == "neutral" and metric in ("lr_claim_all", "lr_claim", "claim"):
+                    continue
+                r = paired(cond, a, b, g, metric, sel)
+                if r is None:
+                    L.append(f"| {g} | {metric} | 0 | — | — | — | — |")
+                    continue
+                tab.append({"group": g, "metric": metric, **r})
+                L.append(f"| {g} | {metric} | {r['n']} | {r['mean']:+.4f} | [{_fmt(r['ci'][0], 4)}, {_fmt(r['ci'][1], 4)}] | "
+                         f"{r['neg_share']:.2f} | {_fmt(r['p'], 4)} |")
+        res["tables"][title] = tab
+    L += ["", "## 8. 各类 token 的平均值（看图头，按回答平均后再平均）", "",
+          "| 条件 | 类别 | 回答数 | " + " | ".join(METRICS) + " |", "|---|---|---|" + "---|" * len(METRICS)]
+    for c in CONDS:
+        for k in TOKEN_CLASSES:
+            vs = [r["m"]["看图头"][k] for (i, cc), r in R.items() if cc == c and r["m"]["看图头"].get(k)]
+            if vs:
+                L.append(f"| {c} | {k} | {len(vs)} | " + " | ".join(f"{np.mean([v[m] for v in vs]):.4f}" for m in METRICS) + " |")
+    L += ["", "## 9. 例子（用户说错，被诱导 / 其他读错的指针数字，供核对规则）", ""]
+    for iid, ex in list(examples.items()):
+        for e in ex[:3]:
+            L.append(f"- {iid} [{e['class']}，{e['hand']}={e['value']}] {e['sentence']}")
+    res["examples"] = examples
+    res["records"] = {f"{i}__{c}": r for (i, c), r in R.items()}
+    out_md = out_md or os.path.join(root, "tokens_report.md")
+    out_json = out_json or os.path.join(root, "tokens_summary.json")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    _atomic_json(out_json, res)
+    print(f"[fp-sources tokens] {len(R)} 条记录 → {out_md}、{out_json}；缺 {len(missing)} 条", file=sys.stderr)
+    return res
