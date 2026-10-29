@@ -190,7 +190,14 @@ def main():
     fcm.add_argument("--threshold", type=float, default=-9.28)
     fcm.add_argument("--seeds", nargs="*", type=int, default=None, help="run：每个方法跑哪些种子（默认只跑 --seed）")
     fcm.add_argument("--out", default=None, help="summary：输出 JSON")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm):
+    fsr = sub.add_parser("fp-sources", help="ClockQA：读时间时注意力落在图像还是用户的话上（replay 用 GPU 只读回放，analyze 用 CPU）")
+    fsr.add_argument("--phase", required=True, choices=["replay", "analyze"])
+    fsr.add_argument("--cq", required=True, help="ClockQA 目录（读题目、原模型记录、中性注意力）")
+    fsr.add_argument("--root", required=True, help="新目录（结果存这里）")
+    fsr.add_argument("--conds", nargs="*", default=["neutral", "belief", "belief_right"])
+    fsr.add_argument("--judgments", default=None, help="analyze：时间判读结果 judgments.json（含 obs|题号|条件）")
+    fsr.add_argument("--out", default=None, help="analyze：报告 .md（默认 root/sources_report.md）")
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -281,6 +288,14 @@ def main():
                     fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed, a.arms)
                 else:
                     fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed, a.seeds)
+        elif a.cmd == "fp-sources":
+            from symexp.fp import sources as fp_sources
+            if a.phase == "replay":
+                fp_sources.run_replay(Config.load(a.config, _overrides(a.set)), a.cq, a.root, a.conds, a.shard)
+            else:
+                if not a.judgments:
+                    raise SystemExit("--phase analyze 需要 --judgments")
+                fp_sources.run_analyze(a.cq, a.root, a.judgments, a.out)
         elif a.cmd == "fp-verify":
             from symexp.fp import verify as fp_verify
             fp_verify.run(Config.load(a.config, _overrides(a.set)), a.cq, a.work, a.cases, a.out, a.threshold, a.conds,
