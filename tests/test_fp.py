@@ -963,3 +963,69 @@ def test_sources_tokens(tmp_path):
     t = [r for r in res["tables"][next(k for k in res["tables"] if k.startswith("1."))] if r["group"] == "看图头" and r["metric"] == "img"][0]
     assert t["n"] == 5 and t["mean"] < 0 and t["neg_share"] == 1.0
     assert os.path.exists(root / "tokens_report.md")
+
+
+def test_sources_prompt_recorder():
+    import pytest
+    torch = pytest.importorskip("torch")
+    from symexp import attn
+    from symexp.fp import sources as sr
+    g = torch.Generator().manual_seed(0)
+    T, H, D = 14, 24, 8
+    cats = np.array([4, 0, 0, 0, 4, 1, 1, 3, 2, 2, 3, 4, 4, 4], np.int64)
+    qpos = [5, 6, 7, 8, 9, 10, 13]
+    rec = sr.PromptRecorder(torch, cats, qpos, torch.tensor([1, 2, 3]), chunk=4)
+
+    class M:
+        pass
+    keep = {}
+    for li, layer in enumerate(LAYERS):
+        m = M()
+        m.layer_idx, m.scaling = layer, D ** -0.5
+        q, k, v = (torch.randn(1, H, T, D, generator=g) for _ in range(3))
+        attn._ACTIVE = rec
+        try:
+            attn._recording_attention(lambda *a, **kw: None, m, q, k, v, None)
+        finally:
+            attn._ACTIVE = None
+        sc = ((q @ k.transpose(-1, -2)) * m.scaling).masked_fill(~torch.ones(T, T, dtype=torch.bool).tril(), float("-inf"))
+        keep[li] = torch.softmax(sc, -1)[0][:, qpos]                        # [H, Q, T]
+    out = rec.result()
+    for li, p in keep.items():
+        assert np.allclose(out["patch"][:, li].astype(np.float32), p[:, :, 1:4].transpose(0, 1).numpy(), atol=2e-3)
+        oh = torch.nn.functional.one_hot(torch.as_tensor(cats), 5).float()
+        assert np.allclose(out["mass"][:, li].astype(np.float32), (p @ oh).transpose(0, 1).numpy(), atol=2e-3)
+
+
+def test_sources_prompt_analyze(tmp_path):
+    from symexp.fp import sources as sr
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    (root / "prompt").mkdir(parents=True)
+    (root / "refs").mkdir()
+    cq.mkdir()
+    g = np.random.default_rng(0)
+    n = 9
+    items = []
+    for k in range(4):
+        iid = f"CQ-{k:03d}"
+        items.append({"id": iid, "gold": "1:00:00", "claim": "2:00:00", "image": "x.jpg", "messages": {}})
+        E = np.zeros((2, 16, 24, n), bool)
+        E[..., :2] = True
+        heads = np.zeros((16, 24), bool)
+        heads[:4] = True
+        np.savez(root / "refs" / f"{iid}.npz", E_mask=E, heads=heads, n_img=np.array(n))
+        for c in sr.CONDS:
+            qc = np.array([1, 1, 3, 2, 2, 3, 4] if c != "neutral" else [1, 1, 4], np.int8)
+            patch = g.random((len(qc), 16, 24, n)).astype(np.float32)
+            if c == "belief":
+                patch[qc == 2, ..., :2] *= 0.1                                # 说错时数字 token 少看关键区域
+            mass = g.random((len(qc), 16, 24, 5)).astype(np.float32)
+            mass /= mass.sum(-1, keepdims=True)
+            np.savez(root / "prompt" / f"{iid}__{c}.npz", patch=patch.astype(np.float16), mass=mass.astype(np.float16), qcats=qc)
+    with open(cq / "items.jsonl", "w") as f:
+        for it in items:
+            f.write(json.dumps(it) + "\n")
+    res = sr.run_prompt_analyze(str(cq), str(root))
+    t = res["tables"]["B_wrong_vs_right"]["看图头 claim_time E 比例"]
+    assert t["n"] == 4 and t["mean"] < 0 and t["pos_share"] == 0.0
+    assert os.path.exists(root / "prompt_report.md")

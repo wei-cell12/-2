@@ -873,3 +873,261 @@ def run_tokens(cq: str, root: str, judgments: str, out_md: Optional[str] = None,
     _atomic_json(out_json, res)
     print(f"[fp-sources tokens] {len(R)} 条记录 → {out_md}、{out_json}；缺 {len(missing)} 条", file=sys.stderr)
     return res
+
+
+# ---------------------------------------------------------------- 读提示阶段：题目 / 用户断言看图像
+"""prompt / prompt-analyze：只把提示本身前向一遍（不带任何输出），记录用户消息里每个 token 读的时候
+对 169 个图像块的注意力（16 层 × 24 头），以及对 5 类提示位置（图像、题干、断言时间、断言其余、模板）的总量。
+
+比较：
+  A. 同一条提示里：题目 token 看图 vs 用户断言 token 看图（看图总量、图像内部分布的 JS、落在关键区域 E 的比例）。
+  B. 同一题，用户说错 vs 用户说对：两条提示只有时间数字不同。比较时间数字 token 看图的位置
+     （图像、题目完全相同；数字之前的 token 两边完全一样，注意力也必然一样，作为核对）。
+     关键区域 E = 该题中性回答思考阶段看图头注意力最高的 20% 图像块（指针所在处）。
+     如果数字 token 会按数字的内容去图上“找”，用户说错时它们落在真实指针处（E）的比例应该更低。
+  C. 提示最后一个 token（模型开始写字前的那一刻）：同上。
+"""
+PCATS = CATS[:5]
+
+
+class PromptRecorder:
+    def __init__(self, torch, cats_prompt: np.ndarray, qpos: List[int], image_idx, chunk: int = 256):
+        self.torch = torch
+        self.chunk = chunk
+        self.selfcheck_left = 0
+        self.selfcheck_diffs: List[float] = []
+        self.cats = torch.as_tensor(np.asarray(cats_prompt, np.int64))
+        self.qpos = torch.as_tensor(qpos, dtype=torch.long)
+        self.image_idx = image_idx
+        self.patch, self.mass = {}, {}
+
+    def stages_for(self, q_pos):
+        return self.torch.full_like(q_pos, -1)
+
+    def accumulate(self, layer_idx: int, probs, stages, q_pos):
+        t = self.torch
+        if layer_idx not in LAYERS:
+            raise SourcesCheckFailed(f"第 {layer_idx} 层不在标准注意力层列表里")
+        want = self.qpos.to(q_pos.device)
+        sel = (q_pos[:, None] == want[None, :])                              # [c, Q]
+        if not bool(sel.any()):
+            return
+        rows_c, rows_q = sel.nonzero(as_tuple=True)
+        p = probs[0][:, rows_c.to(probs.device), :].float()                  # [H, r, kL]
+        kL = p.shape[-1]
+        oh = t.nn.functional.one_hot(self.cats[:kL].to(p.device), len(PCATS)).float()
+        if layer_idx not in self.patch:
+            H = p.shape[0]
+            self.patch[layer_idx] = t.zeros(len(self.qpos), H, int(self.image_idx.numel()), dtype=t.float32)
+            self.mass[layer_idx] = t.zeros(len(self.qpos), H, len(PCATS), dtype=t.float32)
+        rq = rows_q.cpu()
+        self.patch[layer_idx][rq] = p[:, :, self.image_idx.to(p.device)].transpose(0, 1).cpu()
+        self.mass[layer_idx][rq] = t.matmul(p, oh).transpose(0, 1).cpu()
+
+    def result(self) -> Dict[str, np.ndarray]:
+        layers = sorted(self.patch)
+        if layers != LAYERS:
+            raise SourcesCheckFailed(f"记录到的层 {layers} 与标准注意力层 {LAYERS} 不一致")
+        mass = np.stack([self.mass[l].numpy() for l in layers], 1)           # [Q, L, H, 5]
+        if np.abs(mass.sum(-1) - 1).max() > SUM_TOL:
+            raise SourcesCheckFailed("提示阶段 5 类注意力之和偏离 1")
+        return {"patch": np.stack([self.patch[l].numpy() for l in layers], 1).astype(np.float16),
+                "mass": mass.astype(np.float16)}
+
+
+def prompt_one(backend, cfg, item: dict, cond: str, rec: dict) -> Tuple[dict, dict]:
+    from .. import attn
+    from .conflict import claim_of
+    from .generate import build_inputs
+    torch, model, tok = backend.torch, backend.model, backend.tokenizer
+    attn.install(model, verbose=False)
+    _, inp = build_inputs(backend, item["image"], item["messages"][cond])
+    in_ids = inp["input_ids"][0].tolist()
+    if rec.get("input_ids") is not None and in_ids != rec["input_ids"]:
+        raise SourcesCheckFailed(f"{item['id']}__{cond}：重新构造的提示与记录里的 input_ids 不一致")
+    img_tok = attn.image_token_id(backend)
+    image_idx = torch.tensor([i for i, x in enumerate(in_ids) if x == img_tok])
+    dec = lambda x: tok.decode(x, skip_special_tokens=False, clean_up_tokenization_spaces=False)
+    pieces, ok = token_pieces(dec, in_ids)
+    cats, spans = prompt_categories(pieces, in_ids, img_tok, item["messages"][cond], cond, claim_of(item, cond))
+    qpos = [k for k in range(len(in_ids)) if cats[k] in (1, 2, 3)] + [len(in_ids) - 1]
+    pr = PromptRecorder(torch, cats, qpos, image_idx, chunk=cfg.attn_chunk)
+    inner = getattr(model, "model", None)
+    if inner is not None and hasattr(inner, "rope_deltas"):
+        inner.rope_deltas = None
+    dev = model.device
+    b = {k: v.to(dev) for k, v in inp.items()}
+    if "pixel_values" in b:
+        b["pixel_values"] = b["pixel_values"].to(model.dtype)
+    t0 = time.time()
+    with torch.inference_mode(), attn.recording(pr):
+        try:
+            model(**b, use_cache=False, return_dict=True, logits_to_keep=1)
+        except TypeError:
+            model(**b, use_cache=False, return_dict=True)
+    arrays = pr.result()
+    arrays.update(qpos=np.array(qpos), qcats=np.array([cats[k] if k < len(in_ids) - 1 else 4 for k in qpos], np.int8),
+                  cats_prompt=cats, input_ids=np.array(in_ids))
+    meta = {"id": item["id"], "condition": cond, "n_in": len(in_ids), "n_img": int(image_idx.numel()),
+            "pieces": [pieces[k] for k in qpos], "pieces_ok": ok, "spans": spans, "seconds": round(time.time() - t0, 2)}
+    return meta, arrays
+
+
+def run_prompt(cfg, cq: str, root: str, conds: Optional[List[str]] = None, shard: str = "") -> int:
+    from .conflict import _engine, _items
+    from .pipeline import _atomic_json, _atomic_npz, _check_no_failure, _fail, _shard
+    conds = conds or CONDS
+    _check_no_failure(root)
+    items = _items(cq)
+    d = os.path.join(root, "prompt")
+    os.makedirs(d, exist_ok=True)
+    tasks = [(i, c) for i in sorted(items) for c in conds]
+    todo = [t for t in _shard(tasks, shard) if not os.path.exists(os.path.join(d, f"{t[0]}__{t[1]}.json"))]
+    print(f"[fp-sources prompt] 共 {len(tasks)} 条，本进程待做 {len(todo)} 条 → {d}", file=sys.stderr)
+    if not todo:
+        return 0
+    eng = _engine(cfg)
+    for n, (iid, cond) in enumerate(todo):
+        try:
+            rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__{cond}.json"), encoding="utf-8"))
+            meta, arrays = prompt_one(eng.backend, cfg, items[iid], cond, rec)
+            _atomic_npz(os.path.join(d, f"{iid}__{cond}.npz"), arrays)
+            _atomic_json(os.path.join(d, f"{iid}__{cond}.json"), meta)
+            print(f"  {n + 1}/{len(todo)} {iid}__{cond} 记录 {len(meta['pieces'])} 个提示 token，{meta['seconds']}s", file=sys.stderr)
+        except Exception as e:
+            _fail(root, f"prompt_{iid}__{cond}", e)
+            raise
+    return len(todo)
+
+
+def _js_rows(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """a, b：[..., n]（各自和为 1）。返回 [...] 的 JS 散度（自然对数）。"""
+    m = 0.5 * (a + b)
+    f = lambda x: np.sum(np.where(x > 0, x * (np.log(np.maximum(x, 1e-12)) - np.log(np.maximum(m, 1e-12))), 0.0), -1)
+    return 0.5 * (f(a) + f(b))
+
+
+def prompt_group_stats(arrays: dict, heads: np.ndarray, E: np.ndarray) -> Dict[str, dict]:
+    """每组提示 token（题干 / 断言其余 / 断言时间 / 最后一个 token）：看图总量、图像内部分布（每头）、落在 E 的比例。"""
+    patch = arrays["patch"].astype(np.float32)                              # [Q, L, H, n]
+    mass = arrays["mass"].astype(np.float32)                                # [Q, L, H, 5]
+    qc = arrays["qcats"].astype(int)
+    last = np.zeros(len(qc), bool)
+    last[-1] = True
+    groups = {"question": (qc == 1) & ~last, "claim_rest": (qc == 3) & ~last, "claim_time": (qc == 2) & ~last, "last": last}
+    out = {}
+    for g, sel in groups.items():
+        if not sel.any():
+            continue
+        P = patch[sel]
+        P = P / np.maximum(P.sum(-1, keepdims=True), 1e-12)                  # 图像内部归一化
+        dist = P.mean(0)                                                    # [L, H, n]
+        e = (P * E[None]).sum(-1).mean(0)                                   # [L, H]
+        out[g] = {"dist": dist, "img": mass[sel][..., 0].mean(0), "E": e, "n_tok": int(sel.sum())}
+    return out
+
+
+def run_prompt_analyze(cq: str, root: str, out_md: Optional[str] = None, out_json: Optional[str] = None) -> dict:
+    from .compare import _reference
+    from .conflict import _items
+    from .pipeline import _atomic_json
+    from .stats import cluster_bootstrap_rate, cluster_signflip
+    items = _items(cq)
+    d = os.path.join(root, "prompt")
+    S, missing = {}, []
+    for iid in sorted(items):
+        ref = _reference(cq, root, iid)
+        heads = np.asarray(ref["heads"], bool)
+        E = np.asarray(ref["E_mask"][0], np.float32)                        # 思考阶段的关键区域 [L, H, n]
+        for c in CONDS:
+            p = os.path.join(d, f"{iid}__{c}.npz")
+            if not os.path.exists(p):
+                missing.append(f"{iid}__{c}")
+                continue
+            with np.load(p) as z:
+                S[(iid, c)] = (prompt_group_stats({k: z[k] for k in ("patch", "mass", "qcats")}, heads, E), heads)
+    HG = {"看图头": lambda h: h, "全部头": lambda h: np.ones_like(h)}
+    L = ["# 读提示阶段：题目 token 与用户断言 token 看图像的情况", "",
+         f"提示前向 {len(S)} 条（缺 {len(missing)}）。每个 token 用“读到它那一步”的注意力；各组先在 token 上平均。", "",
+         "- 看图总量：这一组 token 的注意力里落在 169 个图像块上的总比例",
+         "- E 比例：看图的那部分里，落在该题关键区域（中性回答思考时看图头最集中的 20% 图像块，即指针附近）的比例",
+         "- JS：两组 token 在图像内部的注意力分布之差（每个头算一次再平均；0 = 完全一样，上限 ln2≈0.69）", ""]
+    res = {"missing": missing, "tables": {}}
+
+    def summ(diffs):
+        st = cluster_signflip(diffs)
+        lo, hi = cluster_bootstrap_rate(diffs)
+        v = [x for _, x in diffs]
+        return {"n": len(v), "mean": float(np.mean(v)), "ci": [lo, hi], "p": st["p"], "pos_share": float(np.mean([x > 0 for x in v]))}
+
+    def row(name, r, fmt="+.4f"):
+        return (f"| {name} | {r['n']} | {format(r['mean'], fmt)} | [{_fmt(r['ci'][0], 4)}, {_fmt(r['ci'][1], 4)}] | "
+                f"{r['pos_share']:.2f} | {_fmt(r['p'], 4)} |")
+
+    head = ["| 比较 | 题数 | 平均差 | 95% 区间 | 差 > 0 的比例 | p（符号翻转） |", "|---|---|---|---|---|---|"]
+    # 0. 各组平均值
+    L += ["## 0. 各组 token 的平均值", "", "| 条件 | 头 | 组 | 题数 | 每题 token 数 | 看图总量 | E 比例 |", "|---|---|---|---|---|---|---|"]
+    for c in CONDS:
+        for hg, hf in HG.items():
+            for g in ("question", "claim_rest", "claim_time", "last"):
+                vs = [(st[g], h) for (i, cc), (st, h) in S.items() if cc == c and g in st]
+                if not vs:
+                    continue
+                m = lambda key: float(np.mean([v[key][hf(h)].mean() for v, h in vs]))
+                L.append(f"| {c} | {hg} | {g} | {len(vs)} | {np.mean([v['n_tok'] for v, _ in vs]):.1f} | {m('img'):.4f} | {m('E'):.4f} |")
+    # A. 同一条提示：断言 vs 题目
+    for c in ("belief", "belief_right"):
+        L += ["", f"## A. {c}：同一条提示里，用户断言 token − 题目 token", ""] + head
+        tab = {}
+        for hg, hf in HG.items():
+            for g in ("claim_time", "claim_rest"):
+                dI, dE, js = [], [], []
+                for (i, cc), (st, h) in S.items():
+                    if cc != c or g not in st or "question" not in st:
+                        continue
+                    hm = hf(h)
+                    dI.append((i, float(st[g]["img"][hm].mean() - st["question"]["img"][hm].mean())))
+                    dE.append((i, float(st[g]["E"][hm].mean() - st["question"]["E"][hm].mean())))
+                    js.append((i, float(_js_rows(st[g]["dist"], st["question"]["dist"])[hm].mean())))
+                for name, dd in ((f"{hg} {g} 看图总量", dI), (f"{hg} {g} E 比例", dE)):
+                    r = summ(dd)
+                    tab[name] = r
+                    L.append(row(name, r))
+                r = summ(js)
+                tab[f"{hg} {g} JS（与题目 token）"] = r
+                L.append(f"| {hg} {g} 与题目 token 的 JS（不是差，是距离） | {r['n']} | {r['mean']:.4f} | "
+                         f"[{_fmt(r['ci'][0], 4)}, {_fmt(r['ci'][1], 4)}] | — | — |")
+        res["tables"][f"A_{c}"] = tab
+    # B / C. 用户说错 − 用户说对
+    L += ["", "## B / C. 同一题：用户说错 − 用户说对（两条提示只有时间数字不同）", "",
+          "claim_rest 里有数字之前的 token（两边完全相同，差应为 0，作为核对）和数字之后的句号。", ""] + head
+    tab = {}
+    for hg, hf in HG.items():
+        for g in ("question", "claim_rest", "claim_time", "last"):
+            dI, dE, js = [], [], []
+            for i in items:
+                a, b = S.get((i, "belief")), S.get((i, "belief_right"))
+                if not a or not b or g not in a[0] or g not in b[0]:
+                    continue
+                hm = hf(a[1])
+                x, y = a[0][g], b[0][g]
+                dI.append((i, float(x["img"][hm].mean() - y["img"][hm].mean())))
+                dE.append((i, float(x["E"][hm].mean() - y["E"][hm].mean())))
+                js.append((i, float(_js_rows(x["dist"], y["dist"])[hm].mean())))
+            if not dI:
+                continue
+            for name, dd in ((f"{hg} {g} 看图总量", dI), (f"{hg} {g} E 比例", dE)):
+                r = summ(dd)
+                tab[name] = r
+                L.append(row(name, r))
+            r = summ(js)
+            tab[f"{hg} {g} JS"] = r
+            L.append(f"| {hg} {g} 说错与说对的 JS（距离） | {r['n']} | {r['mean']:.4f} | [{_fmt(r['ci'][0], 4)}, {_fmt(r['ci'][1], 4)}] | — | — |")
+    res["tables"]["B_wrong_vs_right"] = tab
+    out_md = out_md or os.path.join(root, "prompt_report.md")
+    out_json = out_json or os.path.join(root, "prompt_summary.json")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    _atomic_json(out_json, res)
+    print(f"[fp-sources prompt-analyze] {len(S)} 条 → {out_md}、{out_json}；缺 {len(missing)} 条", file=sys.stderr)
+    return res
