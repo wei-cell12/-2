@@ -87,8 +87,8 @@ def parse_candidates(content: str) -> List[str]:
     return out
 
 
-def judge_prompt(question: str, cands: List[str]) -> str:
-    return JUDGE_TEMPLATE.format(question=question, cands="\n".join(f"({i + 1}) {c}" for i, c in enumerate(cands)))
+def judge_prompt(question: str, cands: List[str], template: Optional[str] = None) -> str:
+    return (template or JUDGE_TEMPLATE).format(question=question, cands="\n".join(f"({i + 1}) {c}" for i, c in enumerate(cands)))
 
 
 def parse_supported(text: str, n: int) -> Optional[int]:
@@ -165,13 +165,13 @@ class Runner:
         out, _, n = self.b._gen(text, [self.img(item)], max_new, False, seed, stop)
         return out, n
 
-    def judge(self, item: dict, cands: List[str], seed: int) -> dict:
+    def judge(self, item: dict, cands: List[str], seed: int, template: Optional[str] = None) -> dict:
         from ..backends import GenRequest
         img = self.img(item)
         runs = []
         for order in ("forward", "reverse"):
             cc = list(cands) if order == "forward" else list(reversed(cands))
-            r = self.b.generate(GenRequest(user_text=judge_prompt(item["question"], cc), images=[img], mode="think",
+            r = self.b.generate(GenRequest(user_text=judge_prompt(item["question"], cc, template), images=[img], mode="think",
                                            think_budget=JUDGE_THINK, answer_budget=JUDGE_ANSWER, seed=seed + len(runs)))
             k = parse_supported(r.answer, len(cc))
             runs.append({"order": order, "cands": cc, "answer": r.answer, "supported_index": k,

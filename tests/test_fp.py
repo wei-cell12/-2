@@ -737,3 +737,51 @@ def test_compare_time_judge_roundtrip(tmp_path):
     assert [d["which"] for d in dis] == ["obs|CQ-000|belief"]          # 正则取不出“同意但不复述”的时间，判读能取
     out = cm.run_summary(str(cq), str(root), str(root / "s.json"))
     assert out["scoring"].startswith("判读") and out["metrics"]["原模型"]["谄媚率（中性答对，用户说错，采纳）"]["k"] == 1
+
+
+def test_compare_full2_bans_and_seeds(tmp_path):
+    """屏蔽：模型自己写的 <verify> 与 <result> 被拦下，触发后由程序写入的照常；多种子的结果目录与汇总。"""
+    import numpy as np
+    from symexp.fp import compare as cm
+
+    class Tok:
+        vocab = ["<pad>", "\\x01", "<", "</", "verify", "verify>", "result>", "/verify>", " ", ".", "a", "b", "-", "\\n",
+                 ":", "1", "<verify>", "<result>", "</verify>", "</result>", "x"]
+        def __call__(self, s, add_special_tokens=False):
+            out, i = [], 0
+            toks = sorted(range(len(self.vocab)), key=lambda t: -len(self.vocab[t]))
+            while i < len(s):
+                for t in toks:
+                    v = self.vocab[t]
+                    if v and s.startswith(v, i):
+                        out.append(t); i += len(v); break
+                else:
+                    raise ValueError(s[i])
+            return {"input_ids": out}
+        def decode(self, ids, **kw):
+            return "".join(self.vocab[i] for i in ids)
+        def __len__(self):
+            return len(self.vocab)
+    tok = Tok()
+    bans = cm.tag_bans(tok, len(tok))
+    V = len(tok)
+    assert {tok.vocab[t] for t in bans["verify_any"]} == {"<verify>", "</verify>"}
+    assert {tok.vocab[t] for t in bans["verify_lt"]} == {"verify", "verify>", "/verify>"}
+    orch = cm.Orchestrator(np, tok, 1, 1, lambda: [], lambda c: {}, thr=0.0, enabled=False, bans=bans)
+    sc = np.zeros((1, V)); sc[0, 16] = 5.0                                   # 模型想写 <verify>
+    out = orch(np.array([[0, 10]]), sc)
+    assert out[0, 16] == float("-inf") and out[0, 17] == float("-inf")
+    sc = np.zeros((1, V)); sc[0, 4] = 5.0                                    # 前一个是 "<"，想接 "verify"
+    out = orch(np.array([[0, 10, 2]]), sc)
+    assert out[0, 4] == float("-inf") and out[0, 10] == 0.0
+    out = orch(np.array([[0, 1, 10]]), np.zeros((1, V)))                     # 思考结束后同样屏蔽
+    assert out[0, 16] == float("-inf")
+    orch.state = "verify"                                                    # 写候选时 </verify> 放行，<result> 仍屏蔽
+    out = orch(np.array([[0, 10]]), np.zeros((1, V)))
+    assert out[0, 18] == 0.0 and out[0, 17] == float("-inf")
+    assert cm.run_name("full2", 42) == "full2" and cm.run_name("base", 43) == "base_s43"
+    assert cm._rec_path("/r", "base", "CQ-000", "belief", 44).endswith("base_s44/records/CQ-000__belief.json")
+    for d in ("full2/records", "full2_s43/records", "base_s43/records", "loop/records", "junk/records"):
+        (tmp_path / d).mkdir(parents=True)
+    assert cm._run_dirs(str(tmp_path)) == [("base_s43", "base", 43), ("full2", "full2", 42), ("full2_s43", "full2", 43)]
+    assert "My answer:" in cm.JUDGE_TEMPLATE_V3 and "who" not in cm.JUDGE_TEMPLATE_V3.lower()

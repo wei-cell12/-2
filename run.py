@@ -188,6 +188,7 @@ def main():
                      help="gate / run：哪些方法（mmsy full itsm a1 a2 prompt）")
     fcm.add_argument("--conds", nargs="*", default=["belief", "belief_right"])
     fcm.add_argument("--threshold", type=float, default=-9.28)
+    fcm.add_argument("--seeds", nargs="*", type=int, default=None, help="run：每个方法跑哪些种子（默认只跑 --seed）")
     fcm.add_argument("--out", default=None, help="summary：输出 JSON")
     for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm):
         q.add_argument("--config", default=None)
@@ -279,7 +280,7 @@ def main():
                 if a.phase == "gate":
                     fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed, a.arms)
                 else:
-                    fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed)
+                    fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed, a.seeds)
         elif a.cmd == "fp-verify":
             from symexp.fp import verify as fp_verify
             fp_verify.run(Config.load(a.config, _overrides(a.set)), a.cq, a.work, a.cases, a.out, a.threshold, a.conds,
