@@ -1,0 +1,11 @@
+--- a/symexp/fp/sources.py
++++ b/symexp/fp/sources.py
+@@ -1685,7 +1685,7 @@
+         for l in layers:
+             if self.filled[l] != n_rows:
+                 raise SourcesCheckFailed(f"第 {l} 层读图 token 记录了 {self.filled[l]} 行，应为 {n_rows}")
+-        return {"dist_sum": np.stack([self.dist[l] for l in layers], 1).astype(np.float16),   # [G, L, H, n]
++        return {"dist_sum": np.stack([self.dist[l] for l in layers], 1).astype(np.float32),   # [G, L, H, n]
+                 "mass_sum": np.stack([self.mass[l] for l in layers], 1).astype(np.float32),   # [G, L, H]
+                 "count": self.cnt}
+ 
