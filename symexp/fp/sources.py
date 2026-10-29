@@ -1616,36 +1616,25 @@ def run_prompt_heads(cq: str, root: str, out_md: Optional[str] = None, out_json:
     return res
 
 
-# ---------------------------------------------------------------- 读图 token 看图的分布：三种条件、相同长度、逐头比较
-"""reading / reading-analyze：思考里“读图 token”对 169 个图像 token 的注意力分布，在三种条件之间逐头比较。
+# ---------------------------------------------------------------- 思考开头 token 看图的分布：三种条件、相同长度、逐头比较
+"""reading / reading-analyze：思考最前面的 token（从第 1 个开始，不挑句子）对 169 个图像 token 的注意力分布，
+在三种条件之间逐头比较。
 
-读图 token：思考里描述指针位置或写出读数的句子（classify 判为读图句）中的 token；
-           不含提到用户的句子，也不含假设句和计算句（if / should / … ，= * ° 等）。按出现顺序取最前面的至多 256 个。
-回放时每 8 个连续的读图 token 存一组（每层每头、每个图像块的注意力之和），分析时：
-  相同长度  每题取三种条件里读图 token 组数最少的那个 G，三种条件都取最前面的 G 组，平均后在图像内部归一化
-  条件之间  中性 vs 说错、中性 vs 说对、说错 vs 说对，每个（层, 头）算 JSD
-  噪声基准  同一条回答的 G 组按奇偶分成两半，两半之间的 JSD；条件之间也用同样大小的半份（偶数组 vs 偶数组）比，
-           这样“条件之间的差别”和“同一条回答内部本来就有的差别”可以直接比较
+回放时取思考的前 512 个 token（思考更短就取到思考结束），每 8 个连续 token 存一组（每层每头、每个图像块的注意力之和）。
+分析时分别看前 64 / 128 / 256 / 512 个 token：
+  相同长度  三种条件都取思考的前 W 个 token（某题有一种条件的思考不足 W 个，这一题在这个长度下不用）
+  条件之间  中性 vs 说错、中性 vs 说对、说错 vs 说对，每个（层, 头）算 JSD（平均后在图像内部归一化）
+  噪声基准  同一条回答的前 W 个 token 按组交替分成两半，两半之间的 JSD；条件之间也用同样大小的半份（偶数组 vs 偶数组）比
 """
-READ_MAX = 256
+READ_MAX = 512
 READ_GROUP = 8
+READ_WINDOWS = [64, 128, 256, 512]
+TOP_WINDOW = 256
 
 
-def reading_rows(pieces: List[str], n_think: int, gold: str, claim: Optional[str]) -> List[int]:
-    off = offsets(pieces)
-    text = "".join(pieces[:n_think])
-    rows = []
-    for s0, s1, s in sentences(text):
-        if classify(s, gold, claim) not in READ or _HYPO.search(s) or _CALC.search(s):
-            continue
-        k0 = max(int(np.searchsorted(off, s0, side="right") - 1), 0)
-        rows += [k for k in range(k0, n_think) if int(off[k]) < s1 and s0 < int(off[k + 1])]
-    out, seen = [], set()
-    for r in rows:
-        if r not in seen:
-            seen.add(r)
-            out.append(r)
-    return out[:READ_MAX]
+def reading_rows(n_think: int) -> List[int]:
+    """思考最前面的至多 READ_MAX 个 token（输出行号 0, 1, 2, …）。"""
+    return list(range(min(n_think, READ_MAX)))
 
 
 class ReadingRecorder:
@@ -1696,7 +1685,7 @@ class ReadingRecorder:
         for l in layers:
             if self.filled[l] != n_rows:
                 raise SourcesCheckFailed(f"第 {l} 层读图 token 记录了 {self.filled[l]} 行，应为 {n_rows}")
-        return {"dist_sum": np.stack([self.dist[l] for l in layers], 1).astype(np.float32),   # [G, L, H, n]
+        return {"dist_sum": np.stack([self.dist[l] for l in layers], 1).astype(np.float16),   # [G, L, H, n]
                 "mass_sum": np.stack([self.mass[l] for l in layers], 1).astype(np.float32),   # [G, L, H]
                 "count": self.cnt}
 
@@ -1715,7 +1704,7 @@ def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict) -> T
     if len(out_ids) != meta["n_out"]:
         raise SourcesCheckFailed(f"{item['id']}__{cond}：记录与回放 meta 的输出长度不一致")
     n_think = meta["close"] if meta["close"] is not None else meta["n_out"]
-    rows = reading_rows(meta["pieces_out"], n_think, meta["gold"], meta["claim"])
+    rows = reading_rows(n_think)
     if not rows:
         return {"id": item["id"], "condition": cond, "rows": [], "groups": 0}, {}
     img_tok = attn.image_token_id(backend)
@@ -1761,7 +1750,7 @@ def run_reading(cfg, cq: str, root: str, conds: Optional[List[str]] = None, shar
             if arrays:
                 _atomic_npz(os.path.join(d, f"{iid}__{cond}.npz"), arrays)
             _atomic_json(os.path.join(d, f"{iid}__{cond}.json"), m)
-            print(f"  {n + 1}/{len(todo)} {iid}__{cond} 读图 token {len(m['rows'])} 个（{m['groups']} 组）", file=sys.stderr)
+            print(f"  {n + 1}/{len(todo)} {iid}__{cond} 思考开头 token {len(m['rows'])} 个（{m['groups']} 组）", file=sys.stderr)
         except Exception as e:
             _fail(root, f"reading_{iid}__{cond}", e)
             raise
@@ -1770,6 +1759,18 @@ def run_reading(cfg, cq: str, root: str, conds: Optional[List[str]] = None, shar
 
 def _norm_img(x: np.ndarray) -> np.ndarray:
     return x / np.maximum(x.sum(-1, keepdims=True), 1e-12)
+
+
+def _reading_window(Z: dict, E: np.ndarray, G: int) -> dict:
+    avg = {c: _norm_img(Z[c][0][:G].sum(0)) for c in CONDS}
+    ev = {c: _norm_img(Z[c][0][:G:2].sum(0)) for c in CONDS}
+    od = {c: _norm_img(Z[c][0][1:G:2].sum(0)) for c in CONDS}
+    mass = {c: Z[c][1][:G].sum(0) / max(int(Z[c][2][:G].sum()), 1) for c in CONDS}
+    out = {"within": {c: _js_rows(ev[c], od[c]) for c in CONDS}}
+    for a, b in [("neutral", "belief"), ("neutral", "belief_right"), ("belief", "belief_right")]:
+        out[(a, b)] = {"full": _js_rows(avg[a], avg[b]), "half": _js_rows(ev[a], ev[b]),
+                       "dE": (avg[a] * E).sum(-1) - (avg[b] * E).sum(-1), "dM": mass[a] - mass[b]}
+    return out
 
 
 def run_reading_analyze(cq: str, root: str, judgments: str, out_md: Optional[str] = None,
@@ -1781,12 +1782,8 @@ def run_reading_analyze(cq: str, root: str, judgments: str, out_md: Optional[str
     J = json.load(open(judgments, encoding="utf-8"))
     d = os.path.join(root, "reading")
     pairs = [("neutral", "belief"), ("neutral", "belief_right"), ("belief", "belief_right")]
-    full = {p: [] for p in pairs}
-    half_between = {p: [] for p in pairs}
-    half_within = {c: [] for c in CONDS}
-    dE = {p: [] for p in pairs}
-    dM = {p: [] for p in pairs}
-    used, Gs, outcome_w, heads_any = [], [], [], None
+    per = {W: [] for W in READ_WINDOWS}                                   # (题号, 结果, 这个长度的统计)
+    heads_any = None
     for iid in sorted(items):
         Z = {}
         for c in CONDS:
@@ -1796,88 +1793,101 @@ def run_reading_analyze(cq: str, root: str, judgments: str, out_md: Optional[str
                     Z[c] = (z["dist_sum"].astype(np.float64), z["mass_sum"].astype(np.float64), z["count"])
         if len(Z) < 3:
             continue
-        G = min(int((Z[c][2] == READ_GROUP).sum()) for c in CONDS)                   # 只用满 8 个 token 的组
-        if G < 4:
-            continue
-        G -= G % 2
         ref = _reference(cq, root, iid)
         E = np.asarray(ref["E_mask"][0], np.float64)
         hm = np.asarray(ref["heads"], bool)
         heads_any = hm if heads_any is None else heads_any | hm
-        avg = {c: _norm_img(Z[c][0][:G].sum(0)) for c in CONDS}                      # [L, H, n]
-        ev = {c: _norm_img(Z[c][0][:G:2].sum(0)) for c in CONDS}
-        od = {c: _norm_img(Z[c][0][1:G:2].sum(0)) for c in CONDS}
-        mass = {c: Z[c][1][:G].sum(0) / Z[c][2][:G].sum() for c in CONDS}             # [L, H] 每个 token 的看图总量
-        for a, b in pairs:
-            full[(a, b)].append(_js_rows(avg[a], avg[b]))
-            half_between[(a, b)].append(_js_rows(ev[a], ev[b]))
-            dE[(a, b)].append((avg[a] * E).sum(-1) - (avg[b] * E).sum(-1))
-            dM[(a, b)].append(mass[a] - mass[b])
-        for c in CONDS:
-            half_within[c].append(_js_rows(ev[c], od[c]))
-        used.append(iid)
-        Gs.append(G)
+        full_groups = min(int((Z[c][2] == READ_GROUP).sum()) for c in CONDS)
         j = J.get(f"obs|{iid}|belief")
-        outcome_w.append(OUTCOME.get(j["outcome"], "未") if j else "未")
-    if not used:
-        raise SourcesCheckFailed("没有三种条件都有足够读图 token 的题")
-    A = lambda x: np.array(x)
-    L = ["# 读图 token 看图的分布：三种条件、相同长度、逐头比较", "",
-         f"用了 {len(used)} 题（三种条件都至少有 32 个读图 token）。每题相同长度：取三种条件里最少的组数，"
-         f"中位数 {int(np.median(Gs)) * READ_GROUP} 个 token（{min(Gs) * READ_GROUP}–{max(Gs) * READ_GROUP}）。", "",
-         "JSD 在图像内部归一化后的分布上算（上限 ln2≈0.69），每个头先对题平均。", "",
-         "## 1. 条件之间 vs 同一条回答内部（噪声基准），都用半份（同样数量的 token）", "",
-         "| 比较 | 384 个头中位数 | 前 5% 的边界 | 最大 | 看图头中位数 |", "|---|---|---|---|---|"]
-    res = {"items": used, "G": Gs, "tables": {}}
+        oc = OUTCOME.get(j["outcome"], "未") if j else "未"
+        for W in READ_WINDOWS:
+            G = W // READ_GROUP
+            if full_groups >= G:
+                per[W].append((iid, oc, _reading_window(Z, E, G)))
+    if not any(per.values()):
+        raise SourcesCheckFailed("没有三种条件都有足够思考 token 的题")
+    A = np.array
+    L = ["# 思考开头 token 看图的分布：三种条件、相同长度、逐头比较", "",
+         "三种条件都取思考的前 W 个 token（不挑句子），平均后在图像内部归一化，每个（层, 头）算 JSD（上限 ln2≈0.69），"
+         "每个头先对题平均。噪声基准 = 同一条回答的前 W 个 token 按 8 个一组交替分成两半，两半之间的 JSD；"
+         "条件之间也用同样大小的半份比。", "",
+         "## 1. 条件之间 vs 同一条回答内部（都用半份），384 个头的中位数（括号里是看图头的中位数）", "",
+         "| 前 W 个 token | 题数 | 内部：中性 | 内部：说错 | 内部：说对 | 之间：中性 vs 说错 | 之间：中性 vs 说对 | 之间：说错 vs 说对 |",
+         "|---|---|---|---|---|---|---|---|"]
+    res = {"windows": {}}
 
-    def row(name, arr):
-        m = A(arr).mean(0)
-        f = m.ravel()
-        hv = m[heads_any]
-        L.append(f"| {name} | {np.median(f):.4f} | {np.quantile(f, .95):.4f} | {f.max():.4f} | {np.median(hv):.4f} |")
-        return m
-    for c in CONDS:
-        res["tables"][f"within_{c}"] = row(f"同一条回答内部：{c}（奇数组 vs 偶数组）", half_within[c]).tolist()
-    for a, b in pairs:
-        res["tables"][f"between_half_{a}_{b}"] = row(f"条件之间：{a} vs {b}（偶数组 vs 偶数组）", half_between[(a, b)]).tolist()
-    L += ["", "## 2. 条件之间的差别是否超过噪声（每个头：条件之间的半份 JSD − 两种条件内部半份 JSD 的平均）", "",
-          "正数 = 条件之间比同一条回答内部差得更多。p 为按题的符号翻转检验，BH 校正后计数。", "",
-          "| 比较 | 头平均的超出量 | 超出量 > 0 的头 | BH 校正后显著超出的头 | 看图头里显著超出的 |", "|---|---|---|---|---|"]
-    for a, b in pairs:
-        ex = A(half_between[(a, b)]) - 0.5 * (A(half_within[a]) + A(half_within[b]))     # [题, L, H]
-        ps = _signflip_many(ex.reshape(len(used), -1)).reshape(ex.shape[1:])
-        sig = _bh(ps.ravel()).reshape(ps.shape) & (ex.mean(0) > 0)
-        L.append(f"| {a} vs {b} | {ex.mean():+.4f} | {int((ex.mean(0) > 0).sum())} / 384 | {int(sig.sum())} | "
-                 f"{int((sig & heads_any).sum())} / {int(heads_any.sum())} |")
-        res["tables"][f"excess_{a}_{b}"] = {"mean_by_head": ex.mean(0).tolist(), "p_by_head": ps.tolist(), "n_sig": int(sig.sum())}
-    L += ["", "## 3. 完整长度（三种条件各 G 组）的 JSD 与关键区域、看图总量", "",
-          "E 比例 = 看图部分里落在关键区域（指针附近）的比例；差 = 前者 − 后者。看图总量 = 每个读图 token 的注意力里落在图像上的比例。", "",
-          "| 比较 | JSD 头中位数 | JSD 最大 | E 比例差（看图头平均） | E 比例差为负的题 | 看图总量差（看图头平均） |", "|---|---|---|---|---|---|"]
-    for a, b in pairs:
-        m = A(full[(a, b)]).mean(0)
-        de = A(dE[(a, b)])[:, heads_any].mean(-1)
-        dm = A(dM[(a, b)])[:, heads_any].mean(-1)
-        L.append(f"| {a} vs {b} | {np.median(m):.4f} | {m.max():.4f} | {de.mean():+.4f} | {(de < 0).mean():.2f} | {dm.mean():+.4f} |")
-    L += ["", "## 4. 用户说错的回答按最终结果分开：中性 vs 说错 的半份 JSD 超出噪声的量（头平均）", "",
-          "| 用户说错时的结果 | 题数 | 超出量（头平均） | 超出量（看图头平均） |", "|---|---|---|---|"]
-    ex = A(half_between[("neutral", "belief")]) - 0.5 * (A(half_within["neutral"]) + A(half_within["belief"]))
-    for o in ("对", "采", "他"):
-        sel = np.array([x == o for x in outcome_w])
-        if sel.any():
-            L.append(f"| {o} | {int(sel.sum())} | {ex[sel].mean():+.4f} | {ex[sel][:, heads_any].mean():+.4f} |")
-    m = A(full[("neutral", "belief")]).mean(0)
-    order = np.argsort(-m.ravel())[:10]
-    L += ["", "## 5. 中性 vs 说错：完整长度 JSD 最大的 10 个头", "",
-          "| 层 | 头 | 是否看图头 | JSD | 同一头的噪声基准（两条件内部半份平均） | 条件之间半份 | E 比例差（中性 − 说错） |", "|---|---|---|---|---|---|---|"]
+    def med(m):
+        return f"{np.median(m):.4f}（{np.median(m[heads_any]):.4f}）"
+    for W in READ_WINDOWS:
+        P = per[W]
+        if not P:
+            continue
+        wi = {c: A([x[2]["within"][c] for x in P]).mean(0) for c in CONDS}
+        bt = {pr: A([x[2][pr]["half"] for x in P]).mean(0) for pr in pairs}
+        L.append(f"| {W} | {len(P)} | " + " | ".join(med(wi[c]) for c in CONDS) + " | "
+                 + " | ".join(med(bt[pr]) for pr in pairs) + " |")
+        res["windows"][str(W)] = {"items": [x[0] for x in P]}
+    L += ["", "## 2. 条件之间超出噪声的量（每个头：之间的半份 JSD − 两种条件内部半份 JSD 的平均；正 = 超出噪声）", "",
+          "p 为按题的符号翻转检验，BH 校正。", "",
+          "| 前 W 个 token | 比较 | 头平均超出量 | 超出量 > 0 的头 | BH 校正后显著超出的头 | 其中看图头 |",
+          "|---|---|---|---|---|---|"]
+    for W in READ_WINDOWS:
+        P = per[W]
+        if len(P) < 4:
+            continue
+        for a, b in pairs:
+            ex = A([x[2][(a, b)]["half"] - 0.5 * (x[2]["within"][a] + x[2]["within"][b]) for x in P])
+            ps = _signflip_many(ex.reshape(len(P), -1)).reshape(ex.shape[1:])
+            sig = _bh(ps.ravel()).reshape(ps.shape) & (ex.mean(0) > 0)
+            L.append(f"| {W} | {a} vs {b} | {ex.mean():+.4f} | {int((ex.mean(0) > 0).sum())} / 384 | {int(sig.sum())} | "
+                     f"{int((sig & heads_any).sum())} / {int(heads_any.sum())} |")
+            res["windows"][str(W)][f"excess_{a}_{b}"] = {"mean_by_head": ex.mean(0).tolist(), "p_by_head": ps.tolist(),
+                                                         "n_sig": int(sig.sum())}
+    L += ["", "## 3. 完整长度的 JSD、关键区域比例、看图总量（看图头平均）", "",
+          "E 比例 = 看图部分里落在关键区域（指针附近）的比例；差 = 前者 − 后者。看图总量 = 每个 token 的注意力里落在图像上的比例。", "",
+          "| 前 W 个 token | 比较 | JSD 头中位数 | JSD 最大 | E 比例差 | E 比例差为负的题 | 看图总量差 | 看图总量差为负的题 |",
+          "|---|---|---|---|---|---|---|---|"]
+    for W in READ_WINDOWS:
+        P = per[W]
+        if not P:
+            continue
+        for a, b in pairs:
+            m = A([x[2][(a, b)]["full"] for x in P]).mean(0)
+            de = A([x[2][(a, b)]["dE"][heads_any].mean() for x in P])
+            dm = A([x[2][(a, b)]["dM"][heads_any].mean() for x in P])
+            L.append(f"| {W} | {a} vs {b} | {np.median(m):.4f} | {m.max():.4f} | {de.mean():+.4f} | {(de < 0).mean():.2f} | "
+                     f"{dm.mean():+.4f} | {(dm < 0).mean():.2f} |")
+    L += ["", "## 4. 用户说错时按最终结果分开：中性 vs 说错 超出噪声的量（头平均 / 看图头平均）", "",
+          "| 前 W 个 token | 坚持 | 采纳 | 答成别的错 |", "|---|---|---|---|"]
+    for W in READ_WINDOWS:
+        P = per[W]
+        if not P:
+            continue
+        cells = []
+        for o in ("对", "采", "他"):
+            ex = [x[2][("neutral", "belief")]["half"] - 0.5 * (x[2]["within"]["neutral"] + x[2]["within"]["belief"])
+                  for x in P if x[1] == o]
+            cells.append(f"{A(ex).mean():+.4f} / {A(ex)[:, heads_any].mean():+.4f}（{len(ex)} 题）" if ex else "—")
+        L.append(f"| {W} | " + " | ".join(cells) + " |")
+    TW = TOP_WINDOW if per[TOP_WINDOW] else max(W for W in READ_WINDOWS if per[W])
+    P = per[TW]
+    m = A([x[2][("neutral", "belief")]["full"] for x in P]).mean(0)
+    noise = A([0.5 * (x[2]["within"]["neutral"] + x[2]["within"]["belief"]) for x in P]).mean(0)
+    half = A([x[2][("neutral", "belief")]["half"] for x in P]).mean(0)
+    de = A([x[2][("neutral", "belief")]["dE"] for x in P]).mean(0)
+    order = np.argsort(-(half - noise).ravel())[:10]
+    L += ["", f"## 5. 前 {TW} 个 token，中性 vs 说错：超出噪声最多的 10 个头", "",
+          "| 层 | 头 | 是否看图头 | 完整长度 JSD | 之间（半份） | 噪声（半份） | E 比例差（中性 − 说错） |",
+          "|---|---|---|---|---|---|---|"]
     for k in order:
         l, h = np.unravel_index(int(k), m.shape)
-        noise = 0.5 * (A(half_within["neutral"])[:, l, h].mean() + A(half_within["belief"])[:, l, h].mean())
-        L.append(f"| {LAYERS[l]} | {h} | {'是' if heads_any[l, h] else '否'} | {m[l, h]:.4f} | {noise:.4f} | "
-                 f"{A(half_between[('neutral', 'belief')])[:, l, h].mean():.4f} | {A(dE[('neutral', 'belief')])[:, l, h].mean():+.4f} |")
+        L.append(f"| {LAYERS[l]} | {h} | {'是' if heads_any[l, h] else '否'} | {m[l, h]:.4f} | {half[l, h]:.4f} | "
+                 f"{noise[l, h]:.4f} | {de[l, h]:+.4f} |")
     out_md = out_md or os.path.join(root, "reading_report.md")
     out_json = out_json or os.path.join(root, "reading_summary.json")
     with open(out_md, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
     _atomic_json(out_json, res)
-    print(f"[fp-sources reading-analyze] {len(used)} 题 → {out_md}、{out_json}", file=sys.stderr)
+    print(f"[fp-sources reading-analyze] 各长度的题数 {[len(per[W]) for W in READ_WINDOWS]} → {out_md}、{out_json}",
+          file=sys.stderr)
     return res

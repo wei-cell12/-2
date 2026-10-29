@@ -1207,10 +1207,7 @@ def test_sources_prompt_heads(tmp_path):
 
 def test_sources_reading_rows_and_analyze(tmp_path):
     from symexp.fp import sources as sr
-    pieces = ["The user", " says 2:33:10.", " The hour hand", " points near 7.", " If it were 2,", " fine.",
-              " The minute hand", " points at 1.", "</think>"]
-    rows = sr.reading_rows(pieces, 8, "7:05:00", "2:33:10")
-    assert rows == [2, 3, 6, 7]                                            # 不含提到用户的句子和假设句
+    assert sr.reading_rows(5) == [0, 1, 2, 3, 4] and len(sr.reading_rows(9999)) == sr.READ_MAX
     cq, root = tmp_path / "cq", tmp_path / "root"
     (root / "reading").mkdir(parents=True)
     (root / "refs").mkdir()
@@ -1227,11 +1224,11 @@ def test_sources_reading_rows_and_analyze(tmp_path):
         np.savez(root / "refs" / f"{iid}.npz", E_mask=E, heads=heads, n_img=np.array(n))
         base = g.random((16, 24, n))
         for c in sr.CONDS:
-            Gc = 6 + k
+            Gc = 16 + k
             dist = np.stack([base * 8 + g.random((16, 24, n)) * 0.1 for _ in range(Gc)])
             if c == "belief":
                 dist[:, 3, 5, :2] *= 0.1                                     # 说错时一个头少看关键区域
-            np.savez(root / "reading" / f"{iid}__{c}.npz", dist_sum=dist.astype(np.float32),
+            np.savez(root / "reading" / f"{iid}__{c}.npz", dist_sum=dist.astype(np.float16),
                      mass_sum=dist.sum(-1).astype(np.float32), count=np.full(Gc, 8))
             J[f"obs|{iid}|{c}"] = {"outcome": "采纳" if c == "belief" and k % 2 else "坚持（答对）"}
     with open(cq / "items.jsonl", "w") as f:
@@ -1239,8 +1236,9 @@ def test_sources_reading_rows_and_analyze(tmp_path):
             f.write(json.dumps(it) + "\n")
     json.dump(J, open(tmp_path / "j.json", "w"))
     res = sr.run_reading_analyze(str(cq), str(root), str(tmp_path / "j.json"))
-    assert len(res["items"]) == 6
-    ex = np.array(res["tables"]["excess_neutral_belief"]["mean_by_head"])
+    w = res["windows"]["128"]
+    assert len(w["items"]) == 6 and "256" not in res["windows"]
+    ex = np.array(w["excess_neutral_belief"]["mean_by_head"])
     assert np.unravel_index(int(np.argmax(ex)), ex.shape) == (3, 5)
     assert os.path.exists(root / "reading_report.md")
 
