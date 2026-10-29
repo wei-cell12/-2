@@ -1203,3 +1203,76 @@ def test_sources_prompt_heads(tmp_path):
     assert c["top10"][0]["neg_share"] == 1.0
     q = np.array(res["comparisons"]["question：neutral vs belief"]["js_mean_by_head"])
     assert q.max() < 1e-6
+
+
+def test_sources_reading_rows_and_analyze(tmp_path):
+    from symexp.fp import sources as sr
+    pieces = ["The user", " says 2:33:10.", " The hour hand", " points near 7.", " If it were 2,", " fine.",
+              " The minute hand", " points at 1.", "</think>"]
+    rows = sr.reading_rows(pieces, 8, "7:05:00", "2:33:10")
+    assert rows == [2, 3, 6, 7]                                            # 不含提到用户的句子和假设句
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    (root / "reading").mkdir(parents=True)
+    (root / "refs").mkdir()
+    cq.mkdir()
+    g = np.random.default_rng(0)
+    n, items, J = 9, [], {}
+    for k in range(6):
+        iid = f"CQ-{k:03d}"
+        items.append({"id": iid, "gold": "7:05:00", "claim": "2:33:10", "image": "x.jpg", "messages": {}})
+        E = np.zeros((2, 16, 24, n), bool)
+        E[..., :2] = True
+        heads = np.zeros((16, 24), bool)
+        heads[:4] = True
+        np.savez(root / "refs" / f"{iid}.npz", E_mask=E, heads=heads, n_img=np.array(n))
+        base = g.random((16, 24, n))
+        for c in sr.CONDS:
+            Gc = 6 + k
+            dist = np.stack([base * 8 + g.random((16, 24, n)) * 0.1 for _ in range(Gc)])
+            if c == "belief":
+                dist[:, 3, 5, :2] *= 0.1                                     # 说错时一个头少看关键区域
+            np.savez(root / "reading" / f"{iid}__{c}.npz", dist_sum=dist.astype(np.float32),
+                     mass_sum=dist.sum(-1).astype(np.float32), count=np.full(Gc, 8))
+            J[f"obs|{iid}|{c}"] = {"outcome": "采纳" if c == "belief" and k % 2 else "坚持（答对）"}
+    with open(cq / "items.jsonl", "w") as f:
+        for it in items:
+            f.write(json.dumps(it) + "\n")
+    json.dump(J, open(tmp_path / "j.json", "w"))
+    res = sr.run_reading_analyze(str(cq), str(root), str(tmp_path / "j.json"))
+    assert len(res["items"]) == 6
+    ex = np.array(res["tables"]["excess_neutral_belief"]["mean_by_head"])
+    assert np.unravel_index(int(np.argmax(ex)), ex.shape) == (3, 5)
+    assert os.path.exists(root / "reading_report.md")
+
+
+def test_sources_reading_recorder():
+    import pytest
+    torch = pytest.importorskip("torch")
+    from symexp import attn
+    from symexp.fp import sources as sr
+    g = torch.Generator().manual_seed(0)
+    n_in, n_out, H, D = 8, 20, 24, 8
+    T = n_in + n_out
+    rows = [2, 3, 5, 9, 10, 11, 12, 13, 14, 15]
+    rec = sr.ReadingRecorder(torch, rows, n_in, torch.tensor([1, 2, 3]), chunk=7)
+
+    class M:
+        pass
+    keep = {}
+    for li, layer in enumerate(LAYERS):
+        m = M()
+        m.layer_idx, m.scaling = layer, D ** -0.5
+        q, k, v = (torch.randn(1, H, T, D, generator=g) for _ in range(3))
+        attn._ACTIVE = rec
+        try:
+            attn._recording_attention(lambda *a, **kw: None, m, q, k, v, None)
+        finally:
+            attn._ACTIVE = None
+        sc = ((q @ k.transpose(-1, -2)) * m.scaling).masked_fill(~torch.ones(T, T, dtype=torch.bool).tril(), float("-inf"))
+        keep[li] = torch.softmax(sc, -1)[0]
+    out = rec.result()
+    assert list(out["count"]) == [8, 2]
+    for li, p in keep.items():
+        q_rows = [n_in - 1 + r for r in rows]
+        want0 = p[:, q_rows[:8]][:, :, 1:4].sum(1).numpy()
+        assert np.allclose(out["dist_sum"][0, li], want0, atol=1e-4)

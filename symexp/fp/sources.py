@@ -703,7 +703,7 @@ def hand_match(hand: str, v: int, t: Optional[str]) -> bool:
     return min((v - x) % 60, (x - v) % 60) <= 2
 
 
-def content_tokens(pieces: List[str], n_think: int, gold: str, claim: Optional[str]) -> Tuple[Dict[str, List[int]], list]:
+def content_tokens(pieces: List[str], n_think: int, gold: str, claim: Optional[str], return_details: bool = False):
     """返回 {类别: 行号列表} 和用于核对的例子。claim 为 None 时没有 induced。"""
     off = offsets(pieces)
     text = "".join(pieces[:n_think])
@@ -714,6 +714,7 @@ def content_tokens(pieces: List[str], n_think: int, gold: str, claim: Optional[s
 
     out = {c: [] for c in TOKEN_CLASSES}
     examples = []
+    details = []
     seen_first = set()
     for s0, s1, s in sentences(text):
         kind = classify(s, gold, claim)
@@ -753,9 +754,13 @@ def content_tokens(pieces: List[str], n_think: int, gold: str, claim: Optional[s
                 out[cls].extend(rr)
                 if obs:
                     out[cls + "_obs"].extend(rr)
+                for r in rr:
+                    details.append({"row": int(r), "cls": cls.replace("hand_", ""), "hand": hand, "value": int(v), "obs": bool(obs)})
                 if len(examples) < 60 and cls != "hand_correct":
                     examples.append({"class": cls, "hand": hand, "value": v, "sentence": s.strip()[:220]})
         out["filler"].extend(k for k in rows_of(s0, s1) if k not in content)
+    if return_details:
+        return {c: sorted(set(v)) for c, v in out.items()}, examples, details
     return {c: sorted(set(v)) for c, v in out.items()}, examples
 
 
@@ -1608,4 +1613,271 @@ def run_prompt_heads(cq: str, root: str, out_md: Optional[str] = None, out_json:
         f.write("\n".join(L) + "\n")
     _atomic_json(out_json, res)
     print(f"[fp-sources prompt-heads] {len(used)} 题 → {out_md}、{out_json}", file=sys.stderr)
+    return res
+
+
+# ---------------------------------------------------------------- 读图 token 看图的分布：三种条件、相同长度、逐头比较
+"""reading / reading-analyze：思考里“读图 token”对 169 个图像 token 的注意力分布，在三种条件之间逐头比较。
+
+读图 token：思考里描述指针位置或写出读数的句子（classify 判为读图句）中的 token；
+           不含提到用户的句子，也不含假设句和计算句（if / should / … ，= * ° 等）。按出现顺序取最前面的至多 256 个。
+回放时每 8 个连续的读图 token 存一组（每层每头、每个图像块的注意力之和），分析时：
+  相同长度  每题取三种条件里读图 token 组数最少的那个 G，三种条件都取最前面的 G 组，平均后在图像内部归一化
+  条件之间  中性 vs 说错、中性 vs 说对、说错 vs 说对，每个（层, 头）算 JSD
+  噪声基准  同一条回答的 G 组按奇偶分成两半，两半之间的 JSD；条件之间也用同样大小的半份（偶数组 vs 偶数组）比，
+           这样“条件之间的差别”和“同一条回答内部本来就有的差别”可以直接比较
+"""
+READ_MAX = 256
+READ_GROUP = 8
+
+
+def reading_rows(pieces: List[str], n_think: int, gold: str, claim: Optional[str]) -> List[int]:
+    off = offsets(pieces)
+    text = "".join(pieces[:n_think])
+    rows = []
+    for s0, s1, s in sentences(text):
+        if classify(s, gold, claim) not in READ or _HYPO.search(s) or _CALC.search(s):
+            continue
+        k0 = max(int(np.searchsorted(off, s0, side="right") - 1), 0)
+        rows += [k for k in range(k0, n_think) if int(off[k]) < s1 and s0 < int(off[k + 1])]
+    out, seen = [], set()
+    for r in rows:
+        if r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out[:READ_MAX]
+
+
+class ReadingRecorder:
+    def __init__(self, torch, rows: List[int], n_in: int, image_idx, chunk: int = 256):
+        self.torch, self.chunk = torch, chunk
+        self.selfcheck_left, self.selfcheck_diffs = 0, []
+        self.n_in = n_in
+        self.image_idx = image_idx
+        G = (len(rows) + READ_GROUP - 1) // READ_GROUP
+        self.G = G
+        self.group = {int(r): i // READ_GROUP for i, r in enumerate(rows)}
+        self.rows_t = torch.as_tensor(sorted(self.group), dtype=torch.long)
+        self.dist, self.mass, self.cnt = {}, {}, np.zeros(G, np.int64)
+        self.filled = {}
+
+    def stages_for(self, q_pos):
+        return self.torch.full_like(q_pos, -1)
+
+    def accumulate(self, layer_idx: int, probs, stages, q_pos):
+        t = self.torch
+        if layer_idx not in LAYERS:
+            raise SourcesCheckFailed(f"第 {layer_idx} 层不在标准注意力层列表里")
+        k = (q_pos - (self.n_in - 1)).cpu()
+        hit = t.isin(k, self.rows_t)
+        if not bool(hit.any()):
+            return
+        idx = hit.nonzero().flatten()
+        p = probs[0][:, idx.to(probs.device), :][:, :, self.image_idx.to(probs.device)].float()   # [H, r, n]
+        H, n = p.shape[0], p.shape[-1]
+        if layer_idx not in self.dist:
+            self.dist[layer_idx] = np.zeros((self.G, H, n), np.float64)
+            self.mass[layer_idx] = np.zeros((self.G, H), np.float64)
+            self.filled[layer_idx] = 0
+        pc = p.cpu().numpy()
+        for j, kk in enumerate(k[idx].tolist()):
+            g = self.group[int(kk)]
+            self.dist[layer_idx][g] += pc[:, j, :]
+            self.mass[layer_idx][g] += pc[:, j, :].sum(-1)
+            if layer_idx == LAYERS[0]:
+                self.cnt[g] += 1
+            self.filled[layer_idx] += 1
+
+    def result(self) -> Dict[str, np.ndarray]:
+        layers = sorted(self.dist)
+        if layers != LAYERS:
+            raise SourcesCheckFailed(f"记录到的层 {layers} 与标准注意力层 {LAYERS} 不一致")
+        n_rows = len(self.group)
+        for l in layers:
+            if self.filled[l] != n_rows:
+                raise SourcesCheckFailed(f"第 {l} 层读图 token 记录了 {self.filled[l]} 行，应为 {n_rows}")
+        return {"dist_sum": np.stack([self.dist[l] for l in layers], 1).astype(np.float32),   # [G, L, H, n]
+                "mass_sum": np.stack([self.mass[l] for l in layers], 1).astype(np.float32),   # [G, L, H]
+                "count": self.cnt}
+
+
+def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict) -> Tuple[dict, dict]:
+    from .. import attn
+    from .entropy import _batch
+    from .generate import build_inputs
+    torch, model = backend.torch, backend.model
+    attn.install(model, verbose=False)
+    _, inp = build_inputs(backend, item["image"], item["messages"][cond])
+    in_ids = inp["input_ids"][0].tolist()
+    if rec.get("input_ids") is not None and in_ids != rec["input_ids"]:
+        raise SourcesCheckFailed(f"{item['id']}__{cond}：重新构造的提示与记录里的 input_ids 不一致")
+    out_ids = [int(x) for x in rec["output_ids"]]
+    if len(out_ids) != meta["n_out"]:
+        raise SourcesCheckFailed(f"{item['id']}__{cond}：记录与回放 meta 的输出长度不一致")
+    n_think = meta["close"] if meta["close"] is not None else meta["n_out"]
+    rows = reading_rows(meta["pieces_out"], n_think, meta["gold"], meta["claim"])
+    if not rows:
+        return {"id": item["id"], "condition": cond, "rows": [], "groups": 0}, {}
+    img_tok = attn.image_token_id(backend)
+    image_idx = torch.tensor([i for i, x in enumerate(in_ids) if x == img_tok])
+    rr = ReadingRecorder(torch, rows, len(in_ids), image_idx, chunk=cfg.attn_chunk)
+    inner = getattr(model, "model", None)
+    if inner is not None and hasattr(inner, "rope_deltas"):
+        inner.rope_deltas = None
+    t0 = time.time()
+    with torch.inference_mode(), attn.recording(rr):
+        try:
+            model(**_batch(backend, inp, out_ids), use_cache=False, return_dict=True, logits_to_keep=1)
+        except TypeError:
+            model(**_batch(backend, inp, out_ids), use_cache=False, return_dict=True)
+    arrays = rr.result()
+    m = {"id": item["id"], "condition": cond, "rows": rows, "groups": rr.G, "seconds": round(time.time() - t0, 2),
+         "first_rows": rows[:8], "last_row": rows[-1]}
+    return m, arrays
+
+
+def run_reading(cfg, cq: str, root: str, conds: Optional[List[str]] = None, shard: str = "") -> int:
+    from .conflict import _engine, _items
+    from .pipeline import _atomic_json, _atomic_npz, _check_no_failure, _fail, _shard
+    conds = conds or CONDS
+    _check_no_failure(root)
+    items = _items(cq)
+    d = os.path.join(root, "reading")
+    os.makedirs(d, exist_ok=True)
+    tasks = [(i, c) for i in sorted(items) for c in conds]
+    todo = [t for t in _shard(tasks, shard) if not os.path.exists(os.path.join(d, f"{t[0]}__{t[1]}.json"))]
+    print(f"[fp-sources reading] 共 {len(tasks)} 条，本进程待做 {len(todo)} 条 → {d}", file=sys.stderr)
+    if not todo:
+        return 0
+    eng = _engine(cfg)
+    for n, (iid, cond) in enumerate(todo):
+        try:
+            rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__{cond}.json"), encoding="utf-8"))
+            mp = os.path.join(root, "replay", f"{iid}__{cond}.json")
+            if not os.path.exists(mp):
+                raise SourcesCheckFailed(f"缺少之前回放的 {mp}（读图 token 的文字片段从这里取）")
+            meta = json.load(open(mp, encoding="utf-8"))
+            m, arrays = reading_one(eng.backend, cfg, items[iid], cond, rec, meta)
+            if arrays:
+                _atomic_npz(os.path.join(d, f"{iid}__{cond}.npz"), arrays)
+            _atomic_json(os.path.join(d, f"{iid}__{cond}.json"), m)
+            print(f"  {n + 1}/{len(todo)} {iid}__{cond} 读图 token {len(m['rows'])} 个（{m['groups']} 组）", file=sys.stderr)
+        except Exception as e:
+            _fail(root, f"reading_{iid}__{cond}", e)
+            raise
+    return len(todo)
+
+
+def _norm_img(x: np.ndarray) -> np.ndarray:
+    return x / np.maximum(x.sum(-1, keepdims=True), 1e-12)
+
+
+def run_reading_analyze(cq: str, root: str, judgments: str, out_md: Optional[str] = None,
+                        out_json: Optional[str] = None) -> dict:
+    from .compare import _reference
+    from .conflict import _items
+    from .pipeline import _atomic_json
+    items = _items(cq)
+    J = json.load(open(judgments, encoding="utf-8"))
+    d = os.path.join(root, "reading")
+    pairs = [("neutral", "belief"), ("neutral", "belief_right"), ("belief", "belief_right")]
+    full = {p: [] for p in pairs}
+    half_between = {p: [] for p in pairs}
+    half_within = {c: [] for c in CONDS}
+    dE = {p: [] for p in pairs}
+    dM = {p: [] for p in pairs}
+    used, Gs, outcome_w, heads_any = [], [], [], None
+    for iid in sorted(items):
+        Z = {}
+        for c in CONDS:
+            p = os.path.join(d, f"{iid}__{c}.npz")
+            if os.path.exists(p):
+                with np.load(p) as z:
+                    Z[c] = (z["dist_sum"].astype(np.float64), z["mass_sum"].astype(np.float64), z["count"])
+        if len(Z) < 3:
+            continue
+        G = min(int((Z[c][2] == READ_GROUP).sum()) for c in CONDS)                   # 只用满 8 个 token 的组
+        if G < 4:
+            continue
+        G -= G % 2
+        ref = _reference(cq, root, iid)
+        E = np.asarray(ref["E_mask"][0], np.float64)
+        hm = np.asarray(ref["heads"], bool)
+        heads_any = hm if heads_any is None else heads_any | hm
+        avg = {c: _norm_img(Z[c][0][:G].sum(0)) for c in CONDS}                      # [L, H, n]
+        ev = {c: _norm_img(Z[c][0][:G:2].sum(0)) for c in CONDS}
+        od = {c: _norm_img(Z[c][0][1:G:2].sum(0)) for c in CONDS}
+        mass = {c: Z[c][1][:G].sum(0) / Z[c][2][:G].sum() for c in CONDS}             # [L, H] 每个 token 的看图总量
+        for a, b in pairs:
+            full[(a, b)].append(_js_rows(avg[a], avg[b]))
+            half_between[(a, b)].append(_js_rows(ev[a], ev[b]))
+            dE[(a, b)].append((avg[a] * E).sum(-1) - (avg[b] * E).sum(-1))
+            dM[(a, b)].append(mass[a] - mass[b])
+        for c in CONDS:
+            half_within[c].append(_js_rows(ev[c], od[c]))
+        used.append(iid)
+        Gs.append(G)
+        j = J.get(f"obs|{iid}|belief")
+        outcome_w.append(OUTCOME.get(j["outcome"], "未") if j else "未")
+    if not used:
+        raise SourcesCheckFailed("没有三种条件都有足够读图 token 的题")
+    A = lambda x: np.array(x)
+    L = ["# 读图 token 看图的分布：三种条件、相同长度、逐头比较", "",
+         f"用了 {len(used)} 题（三种条件都至少有 32 个读图 token）。每题相同长度：取三种条件里最少的组数，"
+         f"中位数 {int(np.median(Gs)) * READ_GROUP} 个 token（{min(Gs) * READ_GROUP}–{max(Gs) * READ_GROUP}）。", "",
+         "JSD 在图像内部归一化后的分布上算（上限 ln2≈0.69），每个头先对题平均。", "",
+         "## 1. 条件之间 vs 同一条回答内部（噪声基准），都用半份（同样数量的 token）", "",
+         "| 比较 | 384 个头中位数 | 前 5% 的边界 | 最大 | 看图头中位数 |", "|---|---|---|---|---|"]
+    res = {"items": used, "G": Gs, "tables": {}}
+
+    def row(name, arr):
+        m = A(arr).mean(0)
+        f = m.ravel()
+        hv = m[heads_any]
+        L.append(f"| {name} | {np.median(f):.4f} | {np.quantile(f, .95):.4f} | {f.max():.4f} | {np.median(hv):.4f} |")
+        return m
+    for c in CONDS:
+        res["tables"][f"within_{c}"] = row(f"同一条回答内部：{c}（奇数组 vs 偶数组）", half_within[c]).tolist()
+    for a, b in pairs:
+        res["tables"][f"between_half_{a}_{b}"] = row(f"条件之间：{a} vs {b}（偶数组 vs 偶数组）", half_between[(a, b)]).tolist()
+    L += ["", "## 2. 条件之间的差别是否超过噪声（每个头：条件之间的半份 JSD − 两种条件内部半份 JSD 的平均）", "",
+          "正数 = 条件之间比同一条回答内部差得更多。p 为按题的符号翻转检验，BH 校正后计数。", "",
+          "| 比较 | 头平均的超出量 | 超出量 > 0 的头 | BH 校正后显著超出的头 | 看图头里显著超出的 |", "|---|---|---|---|---|"]
+    for a, b in pairs:
+        ex = A(half_between[(a, b)]) - 0.5 * (A(half_within[a]) + A(half_within[b]))     # [题, L, H]
+        ps = _signflip_many(ex.reshape(len(used), -1)).reshape(ex.shape[1:])
+        sig = _bh(ps.ravel()).reshape(ps.shape) & (ex.mean(0) > 0)
+        L.append(f"| {a} vs {b} | {ex.mean():+.4f} | {int((ex.mean(0) > 0).sum())} / 384 | {int(sig.sum())} | "
+                 f"{int((sig & heads_any).sum())} / {int(heads_any.sum())} |")
+        res["tables"][f"excess_{a}_{b}"] = {"mean_by_head": ex.mean(0).tolist(), "p_by_head": ps.tolist(), "n_sig": int(sig.sum())}
+    L += ["", "## 3. 完整长度（三种条件各 G 组）的 JSD 与关键区域、看图总量", "",
+          "E 比例 = 看图部分里落在关键区域（指针附近）的比例；差 = 前者 − 后者。看图总量 = 每个读图 token 的注意力里落在图像上的比例。", "",
+          "| 比较 | JSD 头中位数 | JSD 最大 | E 比例差（看图头平均） | E 比例差为负的题 | 看图总量差（看图头平均） |", "|---|---|---|---|---|---|"]
+    for a, b in pairs:
+        m = A(full[(a, b)]).mean(0)
+        de = A(dE[(a, b)])[:, heads_any].mean(-1)
+        dm = A(dM[(a, b)])[:, heads_any].mean(-1)
+        L.append(f"| {a} vs {b} | {np.median(m):.4f} | {m.max():.4f} | {de.mean():+.4f} | {(de < 0).mean():.2f} | {dm.mean():+.4f} |")
+    L += ["", "## 4. 用户说错的回答按最终结果分开：中性 vs 说错 的半份 JSD 超出噪声的量（头平均）", "",
+          "| 用户说错时的结果 | 题数 | 超出量（头平均） | 超出量（看图头平均） |", "|---|---|---|---|"]
+    ex = A(half_between[("neutral", "belief")]) - 0.5 * (A(half_within["neutral"]) + A(half_within["belief"]))
+    for o in ("对", "采", "他"):
+        sel = np.array([x == o for x in outcome_w])
+        if sel.any():
+            L.append(f"| {o} | {int(sel.sum())} | {ex[sel].mean():+.4f} | {ex[sel][:, heads_any].mean():+.4f} |")
+    m = A(full[("neutral", "belief")]).mean(0)
+    order = np.argsort(-m.ravel())[:10]
+    L += ["", "## 5. 中性 vs 说错：完整长度 JSD 最大的 10 个头", "",
+          "| 层 | 头 | 是否看图头 | JSD | 同一头的噪声基准（两条件内部半份平均） | 条件之间半份 | E 比例差（中性 − 说错） |", "|---|---|---|---|---|---|---|"]
+    for k in order:
+        l, h = np.unravel_index(int(k), m.shape)
+        noise = 0.5 * (A(half_within["neutral"])[:, l, h].mean() + A(half_within["belief"])[:, l, h].mean())
+        L.append(f"| {LAYERS[l]} | {h} | {'是' if heads_any[l, h] else '否'} | {m[l, h]:.4f} | {noise:.4f} | "
+                 f"{A(half_between[('neutral', 'belief')])[:, l, h].mean():.4f} | {A(dE[('neutral', 'belief')])[:, l, h].mean():+.4f} |")
+    out_md = out_md or os.path.join(root, "reading_report.md")
+    out_json = out_json or os.path.join(root, "reading_summary.json")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    _atomic_json(out_json, res)
+    print(f"[fp-sources reading-analyze] {len(used)} 题 → {out_md}、{out_json}", file=sys.stderr)
     return res
