@@ -1029,3 +1029,69 @@ def test_sources_prompt_analyze(tmp_path):
     t = res["tables"]["B_wrong_vs_right"]["看图头 claim_time E 比例"]
     assert t["n"] == 4 and t["mean"] < 0 and t["pos_share"] == 0.0
     assert os.path.exists(root / "prompt_report.md")
+
+
+def test_sources_cut_modify():
+    import pytest
+    torch = pytest.importorskip("torch")
+    from symexp.fp import sources as sr
+    g = torch.Generator().manual_seed(0)
+    T = 12
+    p = torch.softmax(torch.randn(1, 24, T, T, generator=g), -1)
+    q = np.zeros(T, bool); q[[5, 6]] = True
+    k = np.zeros(T, bool); k[[1, 2, 3]] = True
+    ref = np.zeros(T, bool); ref[[3, 4]] = True
+    qpos = torch.arange(T)
+    out = sr.CutRecorder(torch, {"kind": "block", "q": q, "k": k}, T, None).modify(LAYERS[0], p, qpos)
+    assert torch.allclose(out[0][:, [5, 6]][..., [1, 2, 3]], torch.zeros(1)) and torch.allclose(out[0].sum(-1), torch.ones(1), atol=1e-5)
+    assert torch.equal(out[0][:, [0, 7]], p[0][:, [0, 7]])
+    half = sr.CutRecorder(torch, {"kind": "scale_frac", "q": q, "k": k, "frac": 0.5}, T, None).modify(LAYERS[0], p, qpos)
+    km = torch.as_tensor(k).float()
+    assert torch.allclose((half[0][:, [5, 6]] * km).sum(-1), 0.5 * (p[0][:, [5, 6]] * km).sum(-1), atol=1e-5)
+    assert torch.allclose(half[0].sum(-1), torch.ones(1), atol=1e-5)
+    rr = sr.CutRecorder(torch, {"kind": "scale_ref", "q": q, "k": k, "qref": ref}, T, None).modify(LAYERS[0], p, qpos)
+    target = torch.minimum((p[0][:, [5, 6]] * km).sum(-1), (p[0][:, [3, 4]] * km).sum(-1).mean(1, keepdim=True))
+    assert torch.allclose((rr[0][:, [5, 6]] * km).sum(-1), target, atol=1e-5)
+    hm = np.zeros((16, 24), bool); hm[0, :2] = True
+    hh = sr.CutRecorder(torch, {"kind": "block", "q": q, "k": k}, T, hm).modify(LAYERS[0], p, qpos)
+    assert torch.equal(hh[0][2:], p[0][2:]) and torch.allclose(hh[0][:2, [5, 6]][..., [1, 2, 3]], torch.zeros(1))
+
+
+def test_sources_cut_specs_and_analyze(tmp_path):
+    from symexp.fp import sources as sr
+    cats_p = np.array([4, 0, 0, 1, 1, 3, 2, 2, 3, 4], np.int8)
+    cats_o = np.array([7, 5, 7, 6, 7], np.int8)
+    S = sr.cut_specs(cats_p, cats_o, len(cats_p), 4)
+    assert set(S) == set(sr.CUTS)
+    assert S["A"]["k"][[5, 6, 7, 8, 11]].all() and not S["A"]["k"][[3, 4, 1]].any()
+    assert S["A"]["q"][9] and S["A"]["q"][13] and not S["A"]["q"][14] and not S["A"]["q"][8]
+    assert S["C0"]["q"][[6, 7]].all() and S["C0"]["q"].sum() == 2 and S["C0"]["k"][[1, 2]].all()
+    assert S["D"]["q"][9] and not S["D"]["q"][8] and S["C1"]["q"][[3, 4, 5, 6, 7, 8]].all()
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    (root / "cut").mkdir(parents=True)
+    cq.mkdir()
+    pieces = ["The short", " hand", " points", " near", " ", "2", ".", " The", " minute", " hand", " is", " at", " ", "1", "."]
+    items = []
+    g = np.random.default_rng(0)
+    for n in range(4):
+        iid = f"CQ-{n:03d}"
+        items.append({"id": iid, "gold": "7:05:00", "claim": "2:33:10", "image": "x.jpg", "messages": {}})
+        for c in sr.CUT_CONDS:
+            lp = np.full((len(sr.CUTS), len(pieces)), -0.5, np.float32)
+            lp[sr.CUTS.index("C0"), 5] = -3.0                                # 切 C0 后被诱导的 “2” 信心下降
+            top = np.tile(np.arange(len(pieces)), (len(sr.CUTS), 1)).astype(np.int32)
+            top[sr.CUTS.index("C0"), 5] = 99
+            np.savez(root / "cut" / f"{iid}__{c}.npz", logp=lp, top1=top, out_ids=np.arange(len(pieces), dtype=np.int32))
+            json.dump({"id": iid, "condition": c, "n_in": 10, "n_out": len(pieces), "close": None, "cuts": sr.CUTS,
+                       "gold": "7:05:00", "claim": "2:33:10" if c == "belief" else "7:05:00", "pieces_out": pieces,
+                       "info": {k: {"dose_before_after": {"3": [0.6, 0.0 if k == "C0" else 0.6]}} for k in sr.CUTS}},
+                      open(root / "cut" / f"{iid}__{c}.json", "w"))
+    with open(cq / "items.jsonl", "w") as f:
+        for it in items:
+            f.write(json.dumps(it) + "\n")
+    J = {f"obs|CQ-{n:03d}|{c}": {"outcome": "采纳"} for n in range(4) for c in sr.CUT_CONDS}
+    json.dump(J, open(tmp_path / "j.json", "w"))
+    res = sr.run_cut_analyze(str(cq), str(root), str(tmp_path / "j.json"))
+    r = [x for x in res["tables"]["induced_minus_correct"] if x["cut"] == "C0" and x["class"] == "指针数字"][0]
+    assert r["n"] == 4 and abs(r["mean"] + 2.5) < 1e-5 and r["neg"] == 1.0
+    assert res["records"]["CQ-000__belief"]["flip"]["hand_induced"]["C0"] == 1.0

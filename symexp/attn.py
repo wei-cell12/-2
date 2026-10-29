@@ -158,6 +158,9 @@ def _recording_attention(orig, module, query, key, value, attention_mask, *args,
             allowed = key_pos[None, :] <= q_pos[s:e][:, None]
             sc = sc.masked_fill(~allowed[None, None], float("-inf"))
         p = torch.softmax(sc, dim=-1)
+        mod = getattr(rec, "modify", None)          # 可选：记录器改写注意力（切断 / 按比例降低），没有就原样
+        if mod is not None:
+            p = mod(int(module.layer_idx), p, q_pos[s:e])
         out[:, :, s:e] = torch.matmul(p, vf).to(query.dtype)
         rec.accumulate(int(module.layer_idx), p, stages[s:e], q_pos[s:e])
         del sc, p

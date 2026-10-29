@@ -1135,3 +1135,321 @@ def run_prompt_analyze(cq: str, root: str, out_md: Optional[str] = None, out_jso
     _atomic_json(out_json, res)
     print(f"[fp-sources prompt-analyze] {len(S)} 条 → {out_md}、{out_json}；缺 {len(missing)} 条", file=sys.stderr)
     return res
+
+
+# ---------------------------------------------------------------- 切断 / 降低注意力的筛选（喂回已有回答，不生成）
+"""cut / cut-analyze：把原模型已有回答（用户说错、用户说对）原样喂回模型，在 16 个标准注意力层里按下表改写注意力，
+记录每个输出位置“写出原来那个字”的对数概率和模型最想写的字（top-1），与不改时比较。
+
+改写方式：
+  切断  谁在看的那些 token，对“不看谁”的那些 token 的注意力置 0，其余按比例放大，总和仍为 1。
+  降低  谁在看的那些 token，落在图像上的注意力总量降到目标值；降下来的部分按比例分给其余 token。
+
+  名称      谁在看                                不看谁 / 降低什么                         头
+  none      —                                     不改                                      —
+  A         所有输出位置的查询（写字时）          断言整句 + 模型自己写出的用户时间          全部
+  B         所有输出位置的查询                    图像                                       全部
+  Qctl      所有输出位置的查询                    题目                                       全部（对照：切掉一段相近长度的别的文字）
+  A1        所有输出位置的查询                    用户这一轮全部文字（题目 + 断言整句）      96 个看图头
+  D         断言整句之后的所有位置（含模板、写字）断言整句（相当于删掉它的 KV）              全部（上限参考）
+  Cq        断言里的时间数字（读提示时）          图像注意力降到同一提示里题目 token 的平均（每层每头）  全部
+  Chalf     断言里的时间数字（读提示时）          图像注意力降到原来的一半                   全部
+  C0        断言里的时间数字（读提示时）          图像（置 0）                               全部
+  C1        用户这一轮全部文字（读提示时）        图像（置 0）                               全部
+A、D、Cq、Chalf、C0 要用到断言在哪一句，只用于分析；A1、C1 只用聊天模板给出的“用户这一轮”边界。
+"""
+CUTS = ["none", "A", "B", "Qctl", "A1", "D", "Cq", "Chalf", "C0", "C1"]
+CUT_CONDS = ["belief", "belief_right"]
+
+
+class CutRecorder:
+    def __init__(self, torch, spec: dict, total: int, heads_mask: np.ndarray, chunk: int = 256):
+        self.torch = torch
+        self.chunk = chunk
+        self.selfcheck_left = 0
+        self.selfcheck_diffs: List[float] = []
+        t = torch
+        self.kind = spec["kind"]
+        self.q = t.as_tensor(spec["q"], dtype=t.bool)
+        self.k = t.as_tensor(spec["k"], dtype=t.bool)
+        self.frac = spec.get("frac")
+        self.qref = t.as_tensor(spec["qref"], dtype=t.bool) if spec.get("qref") is not None else None
+        self.heads = heads_mask                                              # [L, H] bool 或 None（全部头）
+        self.rows = 0
+        self.dose = defaultdict(lambda: [0.0, 0.0, 0])                      # 层 -> [改前图像量, 改后, 行数]
+        self.dev = {}
+
+    def stages_for(self, q_pos):
+        return self.torch.full_like(q_pos, -1)
+
+    def accumulate(self, *a, **kw):
+        return
+
+    def _d(self, x, device):
+        key = (id(x), str(device))
+        if key not in self.dev:
+            self.dev[key] = x.to(device)
+        return self.dev[key]
+
+    def modify(self, layer_idx: int, p, q_pos):
+        t = self.torch
+        if self.kind == "none":
+            return p
+        qm = self._d(self.q, p.device)[q_pos]
+        if not bool(qm.any()):
+            return p
+        kL = p.shape[-1]
+        km = self._d(self.k, p.device)[:kL].float()
+        idx = qm.nonzero().flatten()
+        sub = p[0][:, idx, :]                                               # [H, r, kL]
+        cur = (sub * km).sum(-1)                                            # [H, r]
+        if self.kind == "block":
+            new = sub * (1.0 - km)
+            s = new.sum(-1, keepdim=True)
+            new = t.where(s > 1e-9, new / s.clamp_min(1e-12), sub)
+        else:
+            if self.kind == "scale_frac":
+                target = cur * self.frac
+            else:                                                           # scale_ref：降到参照行（题目 token）的平均
+                rm = self._d(self.qref, p.device)[q_pos]
+                if not bool(rm.any()):
+                    raise SourcesCheckFailed("同一块查询里没有题目 token，无法取参照（提示长度超过 attn_chunk）")
+                ref = (p[0][:, rm.nonzero().flatten(), :] * km).sum(-1).mean(1, keepdim=True)   # [H, 1]
+                target = t.minimum(cur, ref.expand_as(cur))
+            fi = (target / cur.clamp_min(1e-12))[..., None]
+            fo = ((1.0 - target) / (1.0 - cur).clamp_min(1e-12))[..., None]
+            new = sub * (km * fi + (1.0 - km) * fo)
+        if self.heads is not None:
+            hm = t.as_tensor(self.heads[LAYERS.index(layer_idx)], device=p.device)[:, None, None]
+            new = t.where(hm, new, sub)
+        after = (new * km).sum(-1)
+        d = self.dose[layer_idx]
+        d[0] += float(cur.mean()) * len(idx)
+        d[1] += float(after.mean()) * len(idx)
+        d[2] += len(idx)
+        self.rows += len(idx)
+        p = p.clone()
+        p[0][:, idx, :] = new.to(p.dtype)
+        return p
+
+
+def cut_specs(cats_p: np.ndarray, cats_o: np.ndarray, n_in: int, close: Optional[int]) -> Dict[str, dict]:
+    n_out = len(cats_o)
+    total = n_in + n_out
+    pos = np.arange(total)
+    catall = np.concatenate([cats_p, np.full(n_out, -1, np.int8)])
+    img, ques = catall == 0, catall == 1
+    ctime, cline = catall == 2, (catall == 2) | (catall == 3)
+    user = ques | cline
+    gclaim = np.zeros(total, bool)
+    gclaim[n_in:] = cats_o == 5
+    gen_q = (pos >= n_in - 1) & (pos < total - 1)                          # 产生输出 token 的查询
+    if not cline.any():
+        raise SourcesCheckFailed("提示里没有断言句")
+    after_claim = pos > np.flatnonzero(cline).max()
+    S = {"none": {"kind": "none", "q": np.zeros(total, bool), "k": np.zeros(total, bool)},
+         "A": {"kind": "block", "q": gen_q, "k": cline | gclaim},
+         "B": {"kind": "block", "q": gen_q, "k": img},
+         "Qctl": {"kind": "block", "q": gen_q, "k": ques},
+         "A1": {"kind": "block", "q": gen_q, "k": user, "image_heads": True},
+         "D": {"kind": "block", "q": after_claim, "k": cline},
+         "Cq": {"kind": "scale_ref", "q": ctime, "k": img, "qref": ques},
+         "Chalf": {"kind": "scale_frac", "q": ctime, "k": img, "frac": 0.5},
+         "C0": {"kind": "block", "q": ctime, "k": img},
+         "C1": {"kind": "block", "q": user, "k": img}}
+    return S
+
+
+def cut_one(backend, cfg, item: dict, cond: str, rec: dict, heads: np.ndarray) -> Tuple[dict, dict]:
+    from .. import attn
+    from .conflict import CHUNK, RANK_K, RANK_MIN, claim_of
+    from .entropy import _batch
+    from .generate import build_inputs
+    torch, model, tok = backend.torch, backend.model, backend.tokenizer
+    attn.install(model, verbose=False)
+    _, inp = build_inputs(backend, item["image"], item["messages"][cond])
+    in_ids = inp["input_ids"][0].tolist()
+    if rec.get("input_ids") is not None and in_ids != rec["input_ids"]:
+        raise SourcesCheckFailed(f"{item['id']}__{cond}：重新构造的提示与记录里的 input_ids 不一致")
+    n_in = len(in_ids)
+    if n_in > cfg.attn_chunk:
+        raise SourcesCheckFailed(f"提示长度 {n_in} 超过 attn_chunk {cfg.attn_chunk}，Cq 取不到同一块里的题目参照")
+    out_ids = [int(x) for x in rec["output_ids"]]
+    n_out = len(out_ids)
+    img_tok = attn.image_token_id(backend)
+    dec = lambda x: tok.decode(x, skip_special_tokens=False, clean_up_tokenization_spaces=False)
+    p_pieces, _ = token_pieces(dec, in_ids)
+    o_pieces, _ = token_pieces(dec, out_ids)
+    claim = claim_of(item, cond)
+    cats_p, _ = prompt_categories(p_pieces, in_ids, img_tok, item["messages"][cond], cond, claim)
+    cats_o = output_categories(o_pieces, item["gold"], claim)
+    close = out_ids.index(backend.close_id) if backend.close_id in out_ids else None
+    specs = cut_specs(cats_p, cats_o, n_in, close)
+    y = torch.tensor(out_ids, device=model.device)
+    LP, TOP, info = [], [], {}
+    for name in CUTS:
+        sp = specs[name]
+        cr = CutRecorder(torch, sp, n_in + n_out, heads if sp.get("image_heads") else None, chunk=cfg.attn_chunk)
+        inner = getattr(model, "model", None)
+        if inner is not None and hasattr(inner, "rope_deltas"):
+            inner.rope_deltas = None
+        t0 = time.time()
+        with torch.inference_mode(), attn.recording(cr):
+            o = model(**_batch(backend, inp, out_ids), use_cache=False, return_dict=True)
+        lg = o.logits[0, n_in - 1: n_in - 1 + n_out]
+        lp, top, rk = [], [], []
+        for s in range(0, n_out, CHUNK):
+            a = lg[s:s + CHUNK].float()
+            ls = torch.log_softmax(a, -1)
+            lp.append(ls.gather(1, y[s:s + CHUNK, None])[:, 0])
+            top.append(a.argmax(-1))
+            rk.append((a > a.gather(1, y[s:s + CHUNK, None])).sum(-1))
+        del o, lg
+        LP.append(torch.cat(lp).cpu().numpy())
+        TOP.append(torch.cat(top).cpu().numpy())
+        frac20 = float((torch.cat(rk) < RANK_K).float().mean())
+        if name == "none" and frac20 < RANK_MIN:
+            raise SourcesCheckFailed(f"{item['id']}__{cond}：不改时实际 token 进前 {RANK_K} 名的比例只有 {frac20:.3f}")
+        if name != "none" and cr.rows == 0:
+            raise SourcesCheckFailed(f"{item['id']}__{cond}：{name} 没有改写任何一行注意力")
+        dose = {int(l): [v[0] / max(v[2], 1), v[1] / max(v[2], 1)] for l, v in cr.dose.items()}
+        info[name] = {"rows_modified": cr.rows, "top20": round(frac20, 4), "seconds": round(time.time() - t0, 2),
+                      "dose_before_after": dose}
+    arrays = {"logp": np.stack(LP).astype(np.float32), "top1": np.stack(TOP).astype(np.int32),
+              "out_ids": np.array(out_ids, np.int32), "cats_out": cats_o}
+    meta = {"id": item["id"], "condition": cond, "n_in": n_in, "n_out": n_out, "close": close, "cuts": CUTS,
+            "gold": item["gold"], "claim": claim, "pieces_out": o_pieces, "info": info}
+    return meta, arrays
+
+
+def run_cut(cfg, cq: str, root: str, conds: Optional[List[str]] = None, shard: str = "") -> int:
+    from .conflict import _engine, _items
+    from .pipeline import _atomic_json, _atomic_npz, _check_no_failure, _fail, _shard
+    conds = [c for c in (conds or CUT_CONDS) if c in CUT_CONDS]
+    _check_no_failure(root)
+    items = _items(cq)
+    d = os.path.join(root, "cut")
+    os.makedirs(d, exist_ok=True)
+    tasks = [(i, c) for i in sorted(items) for c in conds]
+    todo = [t for t in _shard(tasks, shard) if not os.path.exists(os.path.join(d, f"{t[0]}__{t[1]}.json"))]
+    print(f"[fp-sources cut] 共 {len(tasks)} 条 × {len(CUTS)} 种改写，本进程待做 {len(todo)} 条 → {d}", file=sys.stderr)
+    if not todo:
+        return 0
+    eng = _engine(cfg)
+    for n, (iid, cond) in enumerate(todo):
+        try:
+            rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__{cond}.json"), encoding="utf-8"))
+            meta, arrays = cut_one(eng.backend, cfg, items[iid], cond, rec, _neutral_heads(cq, root, iid))
+            _atomic_npz(os.path.join(d, f"{iid}__{cond}.npz"), arrays)
+            _atomic_json(os.path.join(d, f"{iid}__{cond}.json"), meta)
+            print(f"  {n + 1}/{len(todo)} {iid}__{cond} 输出 {meta['n_out']} token，"
+                  f"{sum(v['seconds'] for v in meta['info'].values()):.0f}s，不改时前20名 {meta['info']['none']['top20']}",
+                  file=sys.stderr)
+        except Exception as e:
+            _fail(root, f"cut_{iid}__{cond}", e)
+            raise
+    return len(todo)
+
+
+CUT_CLASSES = ["hand_induced", "hand_correct", "hand_wrong", "hand_induced_obs", "hand_correct_obs",
+               "time_induced_first", "time_correct_first", "time_induced", "time_correct", "filler"]
+
+
+def run_cut_analyze(cq: str, root: str, judgments: str, out_md: Optional[str] = None, out_json: Optional[str] = None) -> dict:
+    from .conflict import _items
+    from .pipeline import _atomic_json
+    from .stats import cluster_bootstrap_rate, cluster_signflip
+    items = _items(cq)
+    J = json.load(open(judgments, encoding="utf-8"))
+    d = os.path.join(root, "cut")
+    R, missing = {}, []
+    for iid in sorted(items):
+        for c in CUT_CONDS:
+            jp = os.path.join(d, f"{iid}__{c}.json")
+            if not os.path.exists(jp):
+                missing.append(f"{iid}__{c}")
+                continue
+            meta = json.load(open(jp, encoding="utf-8"))
+            with np.load(os.path.join(d, f"{iid}__{c}.npz")) as z:
+                lp, top, oid = z["logp"], z["top1"], z["out_ids"]
+            n_think = meta["close"] if meta["close"] is not None else meta["n_out"]
+            cls, _ = content_tokens(meta["pieces_out"], n_think, meta["gold"], meta["claim"] if c == "belief" else None)
+            r = {"outcome": OUTCOME.get((J.get(f"obs|{iid}|{c}") or {}).get("outcome"), "未"), "n": {}, "d": {}, "flip": {},
+                 "dose": {k: v["dose_before_after"] for k, v in meta["info"].items()}}
+            base = lp[0]
+            for k, rows in cls.items():
+                if k not in CUT_CLASSES or not rows:
+                    continue
+                rows = np.array(rows)
+                r["n"][k] = len(rows)
+                r["d"][k] = {name: float(np.mean(lp[j][rows] - base[rows])) for j, name in enumerate(meta["cuts"])}
+                r["flip"][k] = {name: float(np.mean(top[j][rows] != oid[rows])) for j, name in enumerate(meta["cuts"])}
+            R[(iid, c)] = r
+    L = ["# 切断 / 降低注意力：被诱导的读数还写得出来吗", "",
+         f"喂回原模型已有回答 {len(R)} 条（缺 {len(missing)}）。每个位置记录“写出原来那个字”的对数概率，"
+         "下表的“信心变化”= 改写后 − 不改（负 = 更不想写原来那个字）。“不再首选”= 改写后模型最想写的字不再是原来那个字的比例。", "",
+         "改写方式见代码 `symexp/fp/sources.py` 的 cut 部分说明。A、D、Cq、Chalf、C0 用到断言位置（只作分析）；A1、C1 不用。", ""]
+    res = {"missing": missing, "tables": {}}
+
+    def paired(cond, a, b, name, sel=None):
+        diffs = []
+        for (i, c), r in R.items():
+            if c != cond or (sel and not sel(r)) or a not in r["d"] or b not in r["d"]:
+                continue
+            diffs.append((i, r["d"][a][name] - r["d"][b][name]))
+        if not diffs:
+            return None
+        st = cluster_signflip(diffs)
+        lo, hi = cluster_bootstrap_rate(diffs)
+        v = [x for _, x in diffs]
+        return {"n": len(v), "mean": float(np.mean(v)), "ci": [lo, hi], "p": st["p"], "neg": float(np.mean([x < 0 for x in v]))}
+
+    def mean_over(cond, k, name, field="d"):
+        vs = [r[field][k][name] for (i, c), r in R.items() if c == cond and k in r[field]]
+        return (float(np.mean(vs)), len(vs)) if vs else (None, 0)
+
+    for cond in CUT_CONDS:
+        L += ["", f"## {cond}：各类字的平均信心变化（先在每条回答内平均，再在回答之间平均）", "",
+              "| 改写 | " + " | ".join(CUT_CLASSES) + " |", "|---|" + "---|" * len(CUT_CLASSES)]
+        for name in CUTS[1:]:
+            cells = []
+            for k in CUT_CLASSES:
+                m, n = mean_over(cond, k, name)
+                cells.append("—" if m is None else f"{m:+.3f}（{n}）")
+            L.append(f"| {name} | " + " | ".join(cells) + " |")
+        L += ["", f"**{cond}：不再首选的比例**（不改时的值在第一行）", "",
+              "| 改写 | " + " | ".join(CUT_CLASSES) + " |", "|---|" + "---|" * len(CUT_CLASSES)]
+        for name in CUTS:
+            cells = []
+            for k in CUT_CLASSES:
+                m, n = mean_over(cond, k, name, "flip")
+                cells.append("—" if m is None else f"{m:.3f}")
+            L.append(f"| {name} | " + " | ".join(cells) + " |")
+    L += ["", "## 用户说错：同一条回答里，被诱导的读数字 − 正确的读数字（信心变化之差；负 = 改写对被诱导的字打击更大）", "",
+          "| 改写 | 字的类别 | 回答数 | 平均差 | 95% 区间 | 差 < 0 的比例 | p（符号翻转） |", "|---|---|---|---|---|---|---|"]
+    tab = []
+    for name in CUTS[1:]:
+        for a, b, lab in (("hand_induced", "hand_correct", "指针数字"), ("hand_induced_obs", "hand_correct_obs", "指针数字（严格版）"),
+                          ("time_induced_first", "time_correct_first", "时间数字（首次出现）")):
+            r = paired("belief", a, b, name)
+            if r is None:
+                continue
+            tab.append({"cut": name, "class": lab, **r})
+            L.append(f"| {name} | {lab} | {r['n']} | {r['mean']:+.3f} | [{_fmt(r['ci'][0])}, {_fmt(r['ci'][1])}] | "
+                     f"{r['neg']:.2f} | {_fmt(r['p'], 4)} |")
+    res["tables"]["induced_minus_correct"] = tab
+    L += ["", "## 读提示时降低时间数字看图的程度（Cq / Chalf / C0，用户说错，16 层平均）", "",
+          "| 改写 | 改前看图总量 | 改后看图总量 |", "|---|---|---|"]
+    for name in ("Cq", "Chalf", "C0", "C1"):
+        v = [np.mean([x[0] for x in r["dose"][name].values()]) for (i, c), r in R.items() if c == "belief" and r["dose"].get(name)]
+        w = [np.mean([x[1] for x in r["dose"][name].values()]) for (i, c), r in R.items() if c == "belief" and r["dose"].get(name)]
+        if v:
+            L.append(f"| {name} | {np.mean(v):.4f} | {np.mean(w):.4f} |")
+    res["records"] = {f"{i}__{c}": r for (i, c), r in R.items()}
+    out_md = out_md or os.path.join(root, "cut_report.md")
+    out_json = out_json or os.path.join(root, "cut_summary.json")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    _atomic_json(out_json, res)
+    print(f"[fp-sources cut-analyze] {len(R)} 条 → {out_md}、{out_json}；缺 {len(missing)} 条", file=sys.stderr)
+    return res
