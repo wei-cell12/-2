@@ -1,0 +1,34 @@
+# Qwen3.6-35B-A3B（MoE，总 35B、每个 token 激活约 3B），Hugging Face transformers 后端。
+# 与 Qwen3.8-27B 同一家族（Qwen3.5 架构：门控 DeltaNet 线性注意力 + 标准注意力混合，原生多模态），
+# 除模型本身外，设置都与 Qwen3.8 那边（qwen38_fp.yaml）相同，便于比较。
+backend: hf
+model_path: /path/to/Qwen3.6-35B-A3B-bf16     # 命令行用 --set model_path=... 指定，不改这个文件
+model_class: Qwen3_5MoeForConditionalGeneration
+torch_dtype: bfloat16
+device_map: auto
+attn_implementation: sdpa
+workers: 1
+
+# 图像处理与 Qwen3.8 相同：65536～1048576 像素
+processor_kwargs: {min_pixels: 65536, max_pixels: 1048576}
+
+# 思考：模板参数 enable_thinking；思考写在 <think> … </think> 里，提示末尾补上 <think>（模板已有就不重复）
+thinking_template_kwargs: {enable_thinking: true}
+nothinking_template_kwargs: {enable_thinking: false}
+think_open: "<think>"
+think_close: "</think>"
+think_prefill: true
+hf_single_pass: true
+use_system_prompt: false
+
+# 解码（与 Qwen3.8 相同；种子用命令行）
+temperature: 1.0
+top_p: 0.95
+top_k: 20
+min_p: 0.0
+repetition_penalty: 1.0
+
+# 长度上限与 Qwen3.8、Gemma 4 相同
+think_budget: 4096
+answer_budget: 512
+attn_chunk: 256

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""第二个模型（Gemma 4 31B-it 等）上的 ClockQA baseline：原模型三种条件、MM-SY、ITSM。
+"""其他模型（Gemma 4 31B-it、Qwen3.6-35B-A3B 等）上的 ClockQA baseline：原模型三种条件、MM-SY、ITSM。
+（只跑 base / itsm 时不安装注意力包装，所以对 MoE、线性注意力混合的模型也适用。）
 
 与 Qwen3.8 那套代码（compare.py）的区别：
   - 不假设层的结构。Gemma 4 有滑动窗口层（只看前 1024 个 token）和全局层；按模块自己的 is_sliding 区分。
@@ -71,6 +72,23 @@ def neutral_leak(text: str, item: dict, cond: str) -> dict:
     opinion = bool(re.search(r"\b(I believe|I think|my answer|I'm sure|I am sure|everyone|expert|correct answer is)\b", text, re.I))
     same_q = item["question"].strip().rstrip("?").lower() in text.lower()
     return {"has_claim_time": has_claim, "has_opinion_words": opinion, "keeps_question": same_q}
+
+
+def check_grid_tokens(grid_thw, n_img: int, merge: int, patch: Optional[int] = None,
+                      min_pixels: Optional[int] = None, max_pixels: Optional[int] = None) -> dict:
+    """Qwen 系列：图像 token 数应等于 t·h·w / merge²；缩放后的像素数应在 [min_pixels, max_pixels] 里。"""
+    t, h, w = (int(x) for x in grid_thw)
+    expect = t * h * w // (merge * merge)
+    if expect != int(n_img):
+        raise Model2CheckFailed(f"图像 token 数 {n_img} 与 grid {t}×{h}×{w}（merge {merge}）推算的 {expect} 不一致")
+    out = {"grid_thw": [t, h, w], "n_img": int(n_img)}
+    if patch:
+        px = h * w * int(patch) ** 2
+        out["pixels"] = px
+        if (max_pixels and px > int(max_pixels)) or (min_pixels and px < int(min_pixels)):
+            raise Model2CheckFailed(f"缩放后像素数 {px} 不在配置的 [{min_pixels}, {max_pixels}] 里"
+                                    "（processor_kwargs 没有生效）")
+    return out
 
 
 def image_key_index(img_pos: np.ndarray, total: int, kL: int) -> np.ndarray:
@@ -308,7 +326,8 @@ def generate2(backend, cfg, item: dict, cond: str, arm: str, seed: int, neutral_
     torch, tf, model, tok = backend.torch, backend.transformers, backend.model, backend.tokenizer
     if backend.close_id is None:
         raise Model2CheckFailed(f"思考结束标记 {cfg.think_close!r} 不是单个 token")
-    info = layer_info or install(model)
+    if arm == "mmsy":
+        info = layer_info if layer_info else install(model)
     prompt, inputs = build_inputs(backend, item["image"], item["messages"][cond])
     ids = inputs["input_ids"][0]
     img_pos = (ids == image_token_id(backend)).nonzero().flatten().cpu().numpy()
@@ -319,6 +338,13 @@ def generate2(backend, cfg, item: dict, cond: str, arm: str, seed: int, neutral_
         want = int(np.asarray(nst).reshape(-1)[0])
         if want != len(img_pos):
             raise Model2CheckFailed(f"图像 token 数 {len(img_pos)} 与 processor 给出的 {want} 不一致")
+    grid_info = None
+    if "image_grid_thw" in inputs:
+        from ..attn import merge_size
+        ip = getattr(backend.processor, "image_processor", None)
+        pk = cfg.processor_kwargs or {}
+        grid_info = check_grid_tokens(inputs["image_grid_thw"][0].tolist(), len(img_pos), merge_size(backend),
+                                      getattr(ip, "patch_size", None), pk.get("min_pixels"), pk.get("max_pixels"))
     dev = model.device
     batch = {k: v.to(dev) for k, v in inputs.items() if hasattr(v, "to")}
     if "pixel_values" in batch:
@@ -364,7 +390,7 @@ def generate2(backend, cfg, item: dict, cond: str, arm: str, seed: int, neutral_
            "image": item["image"], "image_sha256": item.get("image_sha256"),
            "thinking_empty": not thinking.strip(), "close_position": close,
            "controller": ctrl.summary() if ctrl else None, "itsm": itsm.summary() if itsm else None,
-           "neutral_text": neutral_text, "model": cfg.model_path,
+           "neutral_text": neutral_text, "model": cfg.model_path, "image_grid": grid_info,
            "sampling": {"temperature": cfg.temperature, "top_p": cfg.top_p, "top_k": cfg.top_k, "min_p": cfg.min_p}}
     if claim:
         rec["outcome"] = outcome(answer, item["gold"], claim)
@@ -482,10 +508,13 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
     if not todo:
         return 0
     eng = _engine(cfg)
-    info = install(eng.backend.model)
-    n_sl = sum(v["sliding"] for v in info.values())
-    print(f"  语言模型注意力层 {len(info)} 层（滑动窗口 {n_sl}，全局 {len(info) - n_sl}）；"
-          f"思考结束标记 id={eng.backend.close_id}", file=sys.stderr)
+    info = None
+    if "mmsy" in arms:
+        info = install(eng.backend.model)
+        n_sl = sum(v["sliding"] for v in info.values())
+        print(f"  语言模型注意力层 {len(info)} 层（滑动窗口 {n_sl}，全局 {len(info) - n_sl}）", file=sys.stderr)
+    print(f"  模型 {type(eng.backend.model).__name__}；思考结束标记 {cfg.think_close!r} id={eng.backend.close_id}",
+          file=sys.stderr)
     synced = False
     for n, (a, s, iid, c) in enumerate(todo):
         try:
@@ -506,7 +535,7 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
                 extra = f" MM-SY 图像注意力 {r['controller']['image_mass_before']:.3f}→{r['controller']['image_mass_after']:.3f}"
             if r.get("neutral_sync"):
                 extra += f" 中性分支同步 {r['neutral_sync']}"
-            print(f"  {n + 1}/{len(todo)} {a} s{s} {iid}__{c} {r['n_out']} token {r['seconds']}s "
+            print(f"  {n + 1}/{len(todo)} {a} s{s} {iid}__{c} 图像 {r['n_img']} token，输出 {r['n_out']} token {r['seconds']}s "
                   f"思考为空={r['thinking_empty']} 结果={r.get('outcome', '—')}{extra}", file=sys.stderr)
         except Exception as e:
             _fail(root, f"{a}_s{s}_{iid}__{c}", e)

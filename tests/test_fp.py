@@ -4,6 +4,7 @@ import json
 import os
 
 import numpy as np
+import pytest
 
 from symexp.config import Config
 from symexp.fp import FLOOR, LAYERS
@@ -1130,6 +1131,23 @@ def test_model2_pure(tmp_path):
     assert m2.setup(str(src), str(dst)) == 1
     it2 = json.loads(open(dst / "items.jsonl").read())
     assert it2["image"].startswith(str(dst)) and open(it2["image"], "rb").read() == b"xyz"
+
+
+def test_model2_qwen36_config_and_grid():
+    from symexp.config import Config
+    from symexp.fp import model2 as m2
+    cfg = Config.load(os.path.join(os.path.dirname(__file__), "..", "configs", "qwen36_35b_a3b.yaml"),
+                      {"model_path": "/m"})
+    assert cfg.model_path == "/m" and cfg.model_class == "Qwen3_5MoeForConditionalGeneration"
+    assert cfg.think_open == "<think>" and cfg.think_close == "</think>" and cfg.think_prefill
+    assert (cfg.temperature, cfg.top_p, cfg.top_k, cfg.think_budget, cfg.answer_budget) == (1.0, 0.95, 20, 4096, 512)
+    assert cfg.processor_kwargs == {"min_pixels": 65536, "max_pixels": 1048576}
+    g = m2.check_grid_tokens([1, 26, 26], 169, 2, 16, 65536, 1048576)
+    assert g == {"grid_thw": [1, 26, 26], "n_img": 169, "pixels": 26 * 26 * 256}
+    with pytest.raises(m2.Model2CheckFailed):
+        m2.check_grid_tokens([1, 26, 26], 170, 2)
+    with pytest.raises(m2.Model2CheckFailed):
+        m2.check_grid_tokens([1, 100, 100], 2500, 2, 16, 65536, 1048576)    # 256 万像素，超过上限
 
 
 def test_model2_mmsy_matches_sdpa():
