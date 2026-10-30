@@ -1274,3 +1274,24 @@ def test_sources_reading_recorder():
         q_rows = [n_in - 1 + r for r in rows]
         want0 = p[:, q_rows[:8]][:, :, 1:4].sum(1).numpy()
         assert np.allclose(out["dist_sum"][0, li], want0, atol=1e-4)
+
+
+def test_sources_reading_claim_geometry(tmp_path):
+    from PIL import Image, ImageDraw
+    from symexp.fp import sources as sr
+    assert sr.claim_far_hands("1:00:00", "12:05:00") == []                 # 只是对调指针
+    far = sr.claim_far_hands("7:05:00", "2:33:10")
+    assert len(far) == 1 and abs(far[0] - 76.58) < 0.1                     # 只有时针（2 点多）指向别处
+    im = Image.new("RGB", (260, 260), "white")
+    dr = ImageDraw.Draw(im)
+    dr.ellipse([30, 30, 230, 230], outline="black", width=6)
+    dr.line([130, 130, 130, 60], fill="black", width=6)                    # 指向 12 点
+    p = tmp_path / "c.png"
+    im.save(p)
+    cx, cy, R, W, H = sr.dial_geometry(str(p))
+    assert abs(cx - 130) < 8 and abs(cy - 125) < 15 and 80 < R < 110
+    m = sr.sector_mask((cx, cy, R, W, H), (13, 13), [0.0])
+    up = m.reshape(13, 13)
+    assert up[2, 6] and not up[10, 6]                                      # 12 点方向在上半部
+    m3 = sr.sector_mask((cx, cy, R, W, H), (13, 13), [90.0]).reshape(13, 13)
+    assert m3[6, 10] and not m3[6, 2]                                      # 3 点方向在右边

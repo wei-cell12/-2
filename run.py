@@ -191,7 +191,7 @@ def main():
     fcm.add_argument("--seeds", nargs="*", type=int, default=None, help="run：每个方法跑哪些种子（默认只跑 --seed）")
     fcm.add_argument("--out", default=None, help="summary：输出 JSON")
     fsr = sub.add_parser("fp-sources", help="ClockQA：读时间时注意力落在图像还是用户的话上（replay 用 GPU 只读回放，analyze 用 CPU）")
-    fsr.add_argument("--phase", required=True, choices=["replay", "analyze", "tokens", "prompt", "prompt-analyze", "prompt-heads", "cut", "cut-analyze", "reading", "reading-analyze"])
+    fsr.add_argument("--phase", required=True, choices=["replay", "analyze", "tokens", "prompt", "prompt-analyze", "prompt-heads", "cut", "cut-analyze", "reading", "reading-analyze", "reading-claim"])
     fsr.add_argument("--cq", required=True, help="ClockQA 目录（读题目、原模型记录、中性注意力）")
     fsr.add_argument("--root", required=True, help="新目录（结果存这里）")
     fsr.add_argument("--conds", nargs="*", default=["neutral", "belief", "belief_right"])
@@ -316,6 +316,8 @@ def main():
                     fp_sources.run_analyze(a.cq, a.root, a.judgments, a.out)
                 elif a.phase == "reading-analyze":
                     fp_sources.run_reading_analyze(a.cq, a.root, a.judgments, a.out)
+                elif a.phase == "reading-claim":
+                    fp_sources.run_reading_claim(a.cq, a.root, a.judgments, a.out)
                 elif a.phase == "cut-analyze":
                     fp_sources.run_cut_analyze(a.cq, a.root, a.judgments, a.out)
                 else:

@@ -1891,3 +1891,189 @@ def run_reading_analyze(cq: str, root: str, judgments: str, out_md: Optional[str
     print(f"[fp-sources reading-analyze] 各长度的题数 {[len(per[W]) for W in READ_WINDOWS]} → {out_md}、{out_json}",
           file=sys.stderr)
     return res
+
+
+# ---------------------------------------------------------------- 按“用户时间的指针位置是否和真实指针重合”分组
+"""reading-claim：用 reading 阶段存好的数据（思考开头 token 看图的分布），按题分两组再比较：
+  重合组  用户时间的每根针都离某根真实指针不超过 35°（只是对调指针，或差一个刻度左右）
+  不同组  用户时间至少有一根针离所有真实指针都超过 35°（指向表盘上别的地方）
+不同组里再看注意力有没有转向“用户时间的那根针该在的地方”：
+  表盘几何  从图像自动估计：深色像素的重心作圆心，深色像素到圆心距离的第 95 百分位作半径（会输出核对图）
+  区域      某根针的区域 = 与这根针方向相差 ≤ 15°、离圆心 0.15–1.05 个半径的图像块
+            用户区域 = 用户时间里离所有真实指针 > 35° 的那几根针的区域，去掉与真实指针区域重叠的部分
+            真实区域 = 正确时间三根针的区域
+  比较      思考前 W 个 token，看图头上落在用户区域 / 真实区域的比例：说错 vs 说对（同一题配对），以及中性
+"""
+SEP_DEG = 35.0
+SECTOR_DEG = 15.0
+
+
+def hand_angles(t: str) -> List[float]:
+    from .conflict import _parse
+    h, m, s = _parse(t)
+    a = [(h + m / 60 + (s or 0) / 3600) * 30 % 360, (m + (s or 0) / 60) * 6 % 360]
+    if s is not None:
+        a.append(s * 6 % 360)
+    return a
+
+
+def _adist(a: float, b: float) -> float:
+    x = abs(a - b) % 360
+    return min(x, 360 - x)
+
+
+def claim_far_hands(gold: str, claim: str, sep: float = SEP_DEG) -> List[float]:
+    g = hand_angles(gold)
+    return [a for a in hand_angles(claim) if min(_adist(a, b) for b in g) > sep]
+
+
+def dial_geometry(img_path: str) -> Tuple[float, float, float, int, int]:
+    """(圆心 x, 圆心 y, 半径, 宽, 高)，像素坐标。"""
+    from PIL import Image
+    im = np.asarray(Image.open(img_path).convert("L"), np.float64)
+    H, W = im.shape
+    dark = im < 100
+    if dark.sum() < 50:
+        dark = im < np.quantile(im, 0.1)
+    ys, xs = np.nonzero(dark)
+    cx, cy = xs.mean(), ys.mean()
+    r = np.quantile(np.hypot(xs - cx, ys - cy), 0.95)
+    return float(cx), float(cy), float(r), W, H
+
+
+def sector_mask(geom, grid_hw, angles: List[float], width: float = SECTOR_DEG) -> np.ndarray:
+    cx, cy, R, W, H = geom
+    gh, gw = int(grid_hw[0]), int(grid_hw[1])
+    m = np.zeros(gh * gw, bool)
+    for i in range(gh):
+        for j in range(gw):
+            x, y = (j + 0.5) / gw * W, (i + 0.5) / gh * H
+            dx, dy = x - cx, y - cy
+            r = np.hypot(dx, dy)
+            if not 0.15 * R <= r <= 1.05 * R:
+                continue
+            th = np.degrees(np.arctan2(dx, -dy)) % 360
+            if any(_adist(th, a) <= width for a in angles):
+                m[i * gw + j] = True
+    return m
+
+
+def _check_image(img_path, geom, grid_hw, gold_m, claim_m, out_png, title):
+    from PIL import Image, ImageDraw
+    im = Image.open(img_path).convert("RGB")
+    cx, cy, R, W, H = geom
+    dr = ImageDraw.Draw(im, "RGBA")
+    gh, gw = int(grid_hw[0]), int(grid_hw[1])
+    for k in range(gh * gw):
+        i, j = divmod(k, gw)
+        box = [j / gw * W, i / gh * H, (j + 1) / gw * W, (i + 1) / gh * H]
+        if gold_m[k]:
+            dr.rectangle(box, fill=(0, 200, 0, 70))
+        if claim_m[k]:
+            dr.rectangle(box, fill=(220, 0, 0, 90))
+    dr.ellipse([cx - R, cy - R, cx + R, cy + R], outline=(0, 0, 255, 255), width=2)
+    dr.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=(0, 0, 255, 255))
+    dr.text((5, 5), title, fill=(0, 0, 0, 255))
+    im.save(out_png)
+
+
+def run_reading_claim(cq: str, root: str, judgments: str, out_md: Optional[str] = None,
+                      out_json: Optional[str] = None) -> dict:
+    from .compare import _reference
+    from .conflict import _items
+    from .pipeline import _atomic_json
+    items = _items(cq)
+    J = json.load(open(judgments, encoding="utf-8"))
+    d = os.path.join(root, "reading")
+    chk = os.path.join(root, "reading_claim_check")
+    os.makedirs(chk, exist_ok=True)
+    rows = []
+    for iid in sorted(items):
+        it = items[iid]
+        Z = {}
+        for c in CONDS:
+            p = os.path.join(d, f"{iid}__{c}.npz")
+            if os.path.exists(p):
+                with np.load(p) as z:
+                    Z[c] = (z["dist_sum"].astype(np.float64), z["mass_sum"].astype(np.float64), z["count"])
+        if len(Z) < 3:
+            continue
+        rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__neutral.json"), encoding="utf-8"))
+        npz = rec.get("npz") or os.path.join(cq, "obs", "attn", f"{iid}__neutral.npz")
+        with np.load(npz) as z:
+            grid_hw = z["grid_hw"]
+        ref = _reference(cq, root, iid)
+        E = np.asarray(ref["E_mask"][0], np.float64)
+        hm = np.asarray(ref["heads"], bool)
+        geom = dial_geometry(it["image"])
+        far = claim_far_hands(it["gold"], it["claim"])
+        gold_m = sector_mask(geom, grid_hw, hand_angles(it["gold"]))
+        claim_m = sector_mask(geom, grid_hw, far) & ~gold_m if far else np.zeros_like(gold_m)
+        if int(np.prod(grid_hw)) != Z["neutral"][0].shape[-1]:
+            raise SourcesCheckFailed(f"{iid}：网格 {grid_hw} 与图像 token 数 {Z['neutral'][0].shape[-1]} 不一致")
+        _check_image(it["image"], geom, grid_hw, gold_m, claim_m, os.path.join(chk, f"{iid}.png"),
+                     f"{iid} gold {it['gold']} (green)  user {it['claim']} (red)")
+        full_groups = min(int((Z[c][2] == READ_GROUP).sum()) for c in CONDS)
+        j = J.get(f"obs|{iid}|belief")
+        rows.append({"id": iid, "group": "不同" if far else "重合", "Z": Z, "E": E, "hm": hm, "gold_m": gold_m,
+                     "claim_m": claim_m, "full_groups": full_groups,
+                     "outcome": OUTCOME.get(j["outcome"], "未") if j else "未"})
+    A = np.array
+    L = ["# 按“用户时间的指针位置是否和真实指针重合”分组：思考开头 token 看图的分布", "",
+         f"重合组：用户时间的每根针离某根真实指针 ≤ {SEP_DEG:.0f}°（对调指针或差一个刻度左右）；"
+         f"不同组：至少一根针离所有真实指针 > {SEP_DEG:.0f}°。",
+         f"重合组 {sum(r['group'] == '重合' for r in rows)} 题，不同组 {sum(r['group'] == '不同' for r in rows)} 题。"
+         "表盘圆心和半径从图像自动估计，核对图在 reading_claim_check/（绿 = 真实指针区域，红 = 用户区域，蓝 = 估计的表盘）。", "",
+         "## 1. 说错 vs 说对：看图分布的差别有没有超出噪声（看图头平均）", "",
+         "超出量 = 两条件之间半份 JSD − 两条件内部半份 JSD 的平均（正 = 超出噪声）。p 为按题的符号翻转检验。", "",
+         "| 前 W 个 token | 组 | 题数 | 超出量 | 超出量 > 0 的题 | p | 指针附近比例差（说错 − 说对） |", "|---|---|---|---|---|---|---|"]
+    res = {"groups": {r["id"]: r["group"] for r in rows}, "tables": {}}
+    for W in READ_WINDOWS:
+        G = W // READ_GROUP
+        for grp in ("重合", "不同"):
+            sel = [r for r in rows if r["group"] == grp and r["full_groups"] >= G]
+            if len(sel) < 3:
+                continue
+            ex, de = [], []
+            for r in sel:
+                st = _reading_window(r["Z"], r["E"], G)
+                hm = r["hm"]
+                e = st[("belief", "belief_right")]["half"] - 0.5 * (st["within"]["belief"] + st["within"]["belief_right"])
+                ex.append((r["id"], float(e[hm].mean())))
+                de.append(float(st[("belief", "belief_right")]["dE"][hm].mean()))
+            v = A([x for _, x in ex])
+            L.append(f"| {W} | {grp} | {len(sel)} | {v.mean():+.4f} | {(v > 0).mean():.2f} | {_fmt(_signflip_p(v), 4)} | "
+                     f"{A(de).mean():+.4f} |")
+    L += ["", "## 2. 不同组：注意力有没有转向用户时间那根针该在的地方（看图头平均）", "",
+          "比例 = 看图的那部分里落在该区域的比例。差 = 说错 − 说对（同一题配对）。", "",
+          "| 前 W 个 token | 题数 | 用户区域：中性 | 用户区域：说错 | 用户区域：说对 | 用户区域差 | 差 > 0 的题 | p | "
+          "真实区域差 | 真实区域差 < 0 的题 | p |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for W in READ_WINDOWS:
+        G = W // READ_GROUP
+        sel = [r for r in rows if r["group"] == "不同" and r["claim_m"].any() and r["full_groups"] >= G]
+        if len(sel) < 3:
+            continue
+        cm, gm = {c: [] for c in CONDS}, {c: [] for c in CONDS}
+        for r in sel:
+            for c in CONDS:
+                dist = _norm_img(r["Z"][c][0][:G].sum(0))[r["hm"]]                      # [头, n]
+                cm[c].append(float(dist[:, r["claim_m"]].sum(-1).mean()))
+                gm[c].append(float(dist[:, r["gold_m"]].sum(-1).mean()))
+        dc = A(cm["belief"]) - A(cm["belief_right"])
+        dg = A(gm["belief"]) - A(gm["belief_right"])
+        L.append(f"| {W} | {len(sel)} | {np.mean(cm['neutral']):.4f} | {np.mean(cm['belief']):.4f} | "
+                 f"{np.mean(cm['belief_right']):.4f} | {dc.mean():+.4f} | {(dc > 0).mean():.2f} | {_fmt(_signflip_p(dc), 4)} | "
+                 f"{dg.mean():+.4f} | {(dg < 0).mean():.2f} | {_fmt(_signflip_p(dg), 4)} |")
+        res["tables"][str(W)] = {"items": [r["id"] for r in sel], "claim_region": {c: cm[c] for c in CONDS},
+                                 "gold_region": {c: gm[c] for c in CONDS}}
+    area = [float(r["claim_m"].mean()) for r in rows if r["group"] == "不同" and r["claim_m"].any()]
+    if area:
+        L += ["", f"参照：用户区域平均占全部图像块的 {np.mean(area):.3f}（注意力均匀分布时落在用户区域的比例）。"]
+    out_md = out_md or os.path.join(root, "reading_claim_report.md")
+    out_json = out_json or os.path.join(root, "reading_claim_summary.json")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    _atomic_json(out_json, res)
+    print(f"[fp-sources reading-claim] 重合 {sum(r['group'] == '重合' for r in rows)} 题、不同 "
+          f"{sum(r['group'] == '不同' for r in rows)} 题 → {out_md}；核对图 → {chk}", file=sys.stderr)
+    return res
