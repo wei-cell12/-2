@@ -1,6 +1,6 @@
 # 服务器任务：思考开头 token 的看图，按"用户说错时的最终结果"分组比较（ClockQA 现在做；PathVQA 补齐后做）
 
-交给 59 上的 agent。代码已写好（`run.py fp-sources --phase reading-groups / reading-pv`）。
+交给 59 上的 agent。代码已写好（`run.py fp-sources --phase reading-groups / reading-gen`）。
 
 **规则**
 - 不要修改任何代码、参数、阈值或清单，也不要额外运行检查命令（下面列出的命令除外）。
@@ -64,7 +64,7 @@ mkdir -p $PS
 ```bash
 cd $L
 # 有 n 张空闲卡时，第 k 张（k = 0 … n-1）：
-CUDA_VISIBLE_DEVICES=<卡号> python run.py fp-sources --phase reading-pv --config $C --cq $P --root $PS --shard k/n 2>&1 | tee $PS/reading_pv_k.log
+CUDA_VISIBLE_DEVICES=<卡号> python run.py fp-sources --phase reading-gen --config $C --cq $P --root $PS --shard k/n 2>&1 | tee $PS/reading_gen_k.log
 ```
 
 如果某题的中性回答没有写完思考（缺回答阶段），程序会报错停下，把那题的题号汇报给我，不要自己跳过。

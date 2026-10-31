@@ -262,8 +262,8 @@ class SourceRecorder:
 
     def result(self) -> Dict[str, np.ndarray]:
         layers = sorted(self.mass)
-        if layers != LAYERS:
-            raise SourcesCheckFailed(f"记录到的层 {layers} 与标准注意力层 {LAYERS} 不一致")
+        if layers != sorted(self.layers):
+            raise SourcesCheckFailed(f"记录到的层 {layers} 与要记录的层 {sorted(self.layers)} 不一致")
         for l in layers:
             if not (self.filled[l] == 1).all():
                 raise SourcesCheckFailed(f"第 {l} 层有输出行没记录到或记录了多次")
@@ -1638,8 +1638,9 @@ def reading_rows(n_think: int) -> List[int]:
 
 
 class ReadingRecorder:
-    def __init__(self, torch, rows: List[int], n_in: int, image_idx, chunk: int = 256):
+    def __init__(self, torch, rows: List[int], n_in: int, image_idx, chunk: int = 256, layers=None):
         self.torch, self.chunk = torch, chunk
+        self.layers = list(LAYERS if layers is None else layers)
         self.selfcheck_left, self.selfcheck_diffs = 0, []
         self.n_in = n_in
         self.image_idx = image_idx
@@ -1655,8 +1656,8 @@ class ReadingRecorder:
 
     def accumulate(self, layer_idx: int, probs, stages, q_pos):
         t = self.torch
-        if layer_idx not in LAYERS:
-            raise SourcesCheckFailed(f"第 {layer_idx} 层不在标准注意力层列表里")
+        if layer_idx not in self.layers:
+            raise SourcesCheckFailed(f"第 {layer_idx} 层不在要记录的层列表里")
         k = (q_pos - (self.n_in - 1)).cpu()
         hit = t.isin(k, self.rows_t)
         if not bool(hit.any()):
@@ -1673,7 +1674,7 @@ class ReadingRecorder:
             g = self.group[int(kk)]
             self.dist[layer_idx][g] += pc[:, j, :]
             self.mass[layer_idx][g] += pc[:, j, :].sum(-1)
-            if layer_idx == LAYERS[0]:
+            if layer_idx == self.layers[0]:
                 self.cnt[g] += 1
             self.filled[layer_idx] += 1
 
@@ -1690,12 +1691,17 @@ class ReadingRecorder:
                 "count": self.cnt}
 
 
-def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict) -> Tuple[dict, dict]:
+def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict, layers=None, only=None,
+                skip: int = 0) -> Tuple[dict, dict]:
+    """layers / only：要记录的层与模块筛选（默认 Qwen3.8 的 16 个标准层）；skip：输出开头跳过的 token 数
+    （思考开头标记由模型自己写的模型，如 Gemma 4 的 <|channel>thought，跳过这几个标记 token）。"""
     from .. import attn
     from .entropy import _batch
     from .generate import build_inputs
     torch, model = backend.torch, backend.model
-    attn.install(model, verbose=False)
+    got = attn.install(model, verbose=False, only=only)
+    if layers is not None and sorted(got) != sorted(layers):
+        raise SourcesCheckFailed(f"装上的记录层 {got} 与要记录的层 {layers} 不一致")
     _, inp = build_inputs(backend, item["image"], item["messages"][cond])
     in_ids = inp["input_ids"][0].tolist()
     if rec.get("input_ids") is not None and in_ids != rec["input_ids"]:
@@ -1704,12 +1710,12 @@ def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict) -> T
     if len(out_ids) != meta["n_out"]:
         raise SourcesCheckFailed(f"{item['id']}__{cond}：记录与回放 meta 的输出长度不一致")
     n_think = meta["close"] if meta["close"] is not None else meta["n_out"]
-    rows = reading_rows(n_think)
+    rows = [skip + r for r in reading_rows(max(n_think - skip, 0))]
     if not rows:
         return {"id": item["id"], "condition": cond, "rows": [], "groups": 0}, {}
     img_tok = attn.image_token_id(backend)
     image_idx = torch.tensor([i for i, x in enumerate(in_ids) if x == img_tok])
-    rr = ReadingRecorder(torch, rows, len(in_ids), image_idx, chunk=cfg.attn_chunk)
+    rr = ReadingRecorder(torch, rows, len(in_ids), image_idx, chunk=cfg.attn_chunk, layers=layers)
     inner = getattr(model, "model", None)
     if inner is not None and hasattr(inner, "rope_deltas"):
         inner.rope_deltas = None
@@ -1797,6 +1803,7 @@ def run_reading_analyze(cq: str, root: str, judgments: str, out_md: Optional[str
         E = np.asarray(ref["E_mask"][0], np.float64)
         hm = np.asarray(ref["heads"], bool)
         heads_any = hm if heads_any is None else heads_any | hm
+        layer_ids = [int(x) for x in ref.get("layer_ids", LAYERS)]
         full_groups = min(int((Z[c][2] == READ_GROUP).sum()) for c in CONDS)
         j = J.get(f"obs|{iid}|belief")
         oc = OUTCOME.get(j["outcome"], "未") if j else "未"
@@ -1839,7 +1846,7 @@ def run_reading_analyze(cq: str, root: str, judgments: str, out_md: Optional[str
             ex = A([x[2][(a, b)]["half"] - 0.5 * (x[2]["within"][a] + x[2]["within"][b]) for x in P])
             ps = _signflip_many(ex.reshape(len(P), -1)).reshape(ex.shape[1:])
             sig = _bh(ps.ravel()).reshape(ps.shape) & (ex.mean(0) > 0)
-            L.append(f"| {W} | {a} vs {b} | {ex.mean():+.4f} | {int((ex.mean(0) > 0).sum())} / 384 | {int(sig.sum())} | "
+            L.append(f"| {W} | {a} vs {b} | {ex.mean():+.4f} | {int((ex.mean(0) > 0).sum())} / {ex.shape[1] * ex.shape[2]} | {int(sig.sum())} | "
                      f"{int((sig & heads_any).sum())} / {int(heads_any.sum())} |")
             res["windows"][str(W)][f"excess_{a}_{b}"] = {"mean_by_head": ex.mean(0).tolist(), "p_by_head": ps.tolist(),
                                                          "n_sig": int(sig.sum())}
@@ -1881,7 +1888,7 @@ def run_reading_analyze(cq: str, root: str, judgments: str, out_md: Optional[str
           "|---|---|---|---|---|---|---|"]
     for k in order:
         l, h = np.unravel_index(int(k), m.shape)
-        L.append(f"| {LAYERS[l]} | {h} | {'是' if heads_any[l, h] else '否'} | {m[l, h]:.4f} | {half[l, h]:.4f} | "
+        L.append(f"| {layer_ids[l]} | {h} | {'是' if heads_any[l, h] else '否'} | {m[l, h]:.4f} | {half[l, h]:.4f} | "
                  f"{noise[l, h]:.4f} | {de[l, h]:+.4f} |")
     out_md = out_md or os.path.join(root, "reading_report.md")
     out_json = out_json or os.path.join(root, "reading_summary.json")
@@ -1998,11 +2005,14 @@ def run_reading_claim(cq: str, root: str, judgments: str, out_md: Optional[str] 
                     Z[c] = (z["dist_sum"].astype(np.float64), z["mass_sum"].astype(np.float64), z["count"])
         if len(Z) < 3:
             continue
-        rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__neutral.json"), encoding="utf-8"))
-        npz = rec.get("npz") or os.path.join(cq, "obs", "attn", f"{iid}__neutral.npz")
-        with np.load(npz) as z:
-            grid_hw = z["grid_hw"]
         ref = _reference(cq, root, iid)
+        if "grid_hw" in ref:                      # fp-model2 记录（reading-gen 建的参照里存了图像 token 排列）
+            grid_hw = ref["grid_hw"]
+        else:
+            rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__neutral.json"), encoding="utf-8"))
+            npz = rec.get("npz") or os.path.join(cq, "obs", "attn", f"{iid}__neutral.npz")
+            with np.load(npz) as z:
+                grid_hw = z["grid_hw"]
         E = np.asarray(ref["E_mask"][0], np.float64)
         hm = np.asarray(ref["heads"], bool)
         geom = dial_geometry(it["image"])

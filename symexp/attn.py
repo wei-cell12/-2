@@ -193,10 +193,12 @@ def find_targets(model) -> List[Tuple[str, object]]:
     return found
 
 
-def install(model, verbose: bool = True) -> List[int]:
-    """安装包装（幂等）。返回记录目标的 layer_idx 列表。"""
+def install(model, verbose: bool = True, only=None) -> List[int]:
+    """安装包装（幂等）。返回记录目标的 layer_idx 列表。only：可选，只把 only(模块) 为真的模块当记录目标。"""
     global _INSTALLED
     targets = find_targets(model)
+    if only is not None:
+        targets = [(n, m) for n, m in targets if only(m)]
     _TARGETS.clear()
     _TARGETS.update(id(m) for _, m in targets)
     layer_ids = sorted(int(m.layer_idx) for _, m in targets)

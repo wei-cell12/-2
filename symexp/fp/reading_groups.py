@@ -13,7 +13,7 @@
                    hands（真实指针方向 ±15° 的扇形，只有 ClockQA 有，相当于论文里的标注框）
 然后对这道题的 96 个看图头取平均，得到每题一个数；组间比较用按题的置换检验（打乱分组，20000 次，双侧）。
 
-PathVQA 的记录由 fp-model2 生成（没有存生成时的注意力），所以 reading-pv 先把中性回答整条回放一次建参照，
+fp-model2 生成的记录（PathVQA、Gemma 4 ClockQA）没有存生成时的注意力，所以 reading-gen 先把中性回答整条回放一次建参照，
 再与 ClockQA 一样回放三种条件的思考开头 token。
 """
 
@@ -114,14 +114,17 @@ def _load(root: str, iid: str) -> Optional[dict]:
     return Z
 
 
-def _hands_mask(cq: str, item: dict) -> Optional[np.ndarray]:
+def _hands_mask(cq: str, item: dict, ref: Optional[dict] = None) -> Optional[np.ndarray]:
     from .sources import dial_geometry, hand_angles, sector_mask
-    rec = json.load(open(os.path.join(cq, "obs", "records", f"{item['id']}__neutral.json"), encoding="utf-8"))
-    npz = rec.get("npz") or os.path.join(cq, "obs", "attn", f"{item['id']}__neutral.npz")
-    if not os.path.exists(npz):
-        return None
-    with np.load(npz) as z:
-        grid_hw = z["grid_hw"]
+    if ref is not None and "grid_hw" in ref:
+        grid_hw = ref["grid_hw"]
+    else:
+        rec = json.load(open(os.path.join(cq, "obs", "records", f"{item['id']}__neutral.json"), encoding="utf-8"))
+        npz = rec.get("npz") or os.path.join(cq, "obs", "attn", f"{item['id']}__neutral.npz")
+        if not os.path.exists(npz):
+            return None
+        with np.load(npz) as z:
+            grid_hw = z["grid_hw"]
     return sector_mask(dial_geometry(item["image"]), grid_hw, hand_angles(item["gold"]))
 
 
@@ -140,7 +143,7 @@ def run_groups(cq: str, root: str, bel: Dict[str, str], neu: Dict[str, str], gro
         ref = _reference(cq, root, iid)
         E = np.asarray(ref["E_mask"][0], bool)
         hm = np.asarray(ref["heads"], bool)
-        hands = _hands_mask(cq, items[iid]) if dataset == "clockqa" else None
+        hands = _hands_mask(cq, items[iid], ref) if dataset == "clockqa" else None
         if hands is not None:
             if hands.shape[0] != E.shape[-1]:
                 raise SourcesCheckFailed(f"{iid}：指针区域 {hands.shape[0]} 块与图像 token {E.shape[-1]} 个不一致")
@@ -214,14 +217,100 @@ def run_groups(cq: str, root: str, bel: Dict[str, str], neu: Dict[str, str], gro
     return res
 
 
-# ---------------------------------------------------------------- PathVQA（fp-model2 记录）的回放
-def run_reading_pv(cfg, cq: str, root: str, conds: Optional[List[str]] = None, shard: str = "") -> int:
-    """对 fp-model2 生成的记录（$P/obs/records）：中性回答整条回放建参照（$S/refs），再回放三种条件的思考开头 token。"""
-    from PIL import Image
+# ---------------------------------------------------------------- fp-model2 记录的回放（PathVQA、Gemma 4 ClockQA 等）
+def record_layers(model) -> Tuple[Optional[list], Optional[Callable]]:
+    """要记录的层：有滑动窗口层的模型（Gemma 4）只用全局层——滑动窗口层看不到滑出窗口的图像 token，
+    两种条件的提示长度不同，滑出的位置也不同，看图分布会因此不可比。没有滑动窗口层时用全部标准注意力层。"""
     from .. import attn
+    mods = [m for _, m in attn.find_targets(model)]
+    if any(getattr(m, "is_sliding", False) for m in mods):
+        keep = lambda m: not getattr(m, "is_sliding", False)
+        return sorted(int(m.layer_idx) for m in mods if keep(m)), keep
+    return None, None
+
+
+def think_skip(tok, cfg, output_ids: List[int]) -> int:
+    """思考开头标记由模型自己写时（think_prefill: false），输出开头属于标记的 token 数（含紧跟的换行）。"""
+    if cfg.think_prefill:
+        return 0
+    want = cfg.think_open.strip()
+    for m in range(1, min(len(output_ids), 12) + 1):
+        if tok.decode(output_ids[:m], skip_special_tokens=False).strip() == want:
+            if m < len(output_ids) and tok.decode(output_ids[m:m + 1], skip_special_tokens=False).strip() == "":
+                m += 1
+            return m
+    raise SourcesCheckFailed(f"输出开头不是思考标记 {want!r}：{tok.decode(output_ids[:12], skip_special_tokens=False)!r}")
+
+
+def image_grid(backend, inputs) -> np.ndarray:
+    """图像 token 在图上的排列（行数, 列数），按行优先。Qwen：image_grid_thw / merge；Gemma 4：图块坐标 / 池化核。"""
+    from .. import attn
+    if "image_grid_thw" in inputs:
+        t, h, w = (int(x) for x in inputs["image_grid_thw"][0].tolist())
+        ms = attn.merge_size(backend)
+        return np.array([h // ms, w // ms])
+    if "image_position_ids" in inputs:
+        pos = np.asarray(inputs["image_position_ids"][0])
+        pos = pos[(pos >= 0).all(-1)]
+        k = int(getattr(backend.processor.image_processor, "pooling_kernel_size", 1))
+        return np.array([(int(pos[:, 1].max()) + 1) // k, (int(pos[:, 0].max()) + 1) // k])
+    raise SourcesCheckFailed("认不出图像 token 的排列（既没有 image_grid_thw 也没有 image_position_ids）")
+
+
+def ref_one(backend, cfg, item: dict, rec: dict, layers=None, only=None) -> dict:
+    """中性回答整条回放一次：思考、回答两个阶段的看图注意力 → 参照（看图头 96 个、每头关键区域）。"""
+    from .. import attn
+    from .entropy import _batch
+    from .generate import build_inputs
+    from .references import build, check
+    torch, model = backend.torch, backend.model
+    got = attn.install(model, verbose=False, only=only)
+    _, inp = build_inputs(backend, item["image"], item["messages"]["neutral"])
+    in_ids = inp["input_ids"][0].tolist()
+    if rec.get("input_ids") is not None and in_ids != [int(x) for x in rec["input_ids"]]:
+        raise SourcesCheckFailed(f"{item['id']}：重新构造的提示与记录里的 input_ids 不一致")
+    out_ids = [int(x) for x in rec["output_ids"]]
+    n_in, total = len(in_ids), len(in_ids) + len(out_ids)
+    close = rec.get("close_position")
+    if close is None:
+        raise SourcesCheckFailed(f"{item['id']}：中性回答没有写完思考（缺回答阶段），建不了参照")
+    img_tok = attn.image_token_id(backend)
+    image_idx = torch.tensor([i for i, x in enumerate(in_ids) if x == img_tok])
+    grid = image_grid(backend, inp)
+    if int(grid.prod()) != int(image_idx.numel()):
+        raise SourcesCheckFailed(f"{item['id']}：图像 token 排列 {grid.tolist()} 与图像 token 数 {int(image_idx.numel())} 不一致")
+    stage_map = torch.full((total,), -1, dtype=torch.long)
+    for name, (a, b2) in attn.stage_bounds(n_in, n_in + int(close), total).items():
+        if b2 > a:
+            stage_map[a:b2] = attn.STAGE_ID[name]
+    r = attn.Recorder(torch, image_idx, stage_map, None, chunk=cfg.attn_chunk, selfcheck=2)
+    inner = getattr(model, "model", None)
+    if inner is not None and hasattr(inner, "rope_deltas"):
+        inner.rope_deltas = None
+    with torch.inference_mode(), attn.recording(r):
+        try:
+            model(**_batch(backend, inp, out_ids), use_cache=False, return_dict=True, logits_to_keep=1)
+        except TypeError:
+            model(**_batch(backend, inp, out_ids), use_cache=False, return_dict=True)
+    out = r.result()
+    if out["think"].shape[1] == 0 or out["answer"].shape[1] == 0:
+        raise SourcesCheckFailed(f"{item['id']}：中性回答缺思考或回答阶段，建不了参照")
+    ref = build(item["id"], out["think"], out["answer"], layer_ids=out["layer_ids"])
+    c = check(ref)
+    if not c["ok"]:
+        raise SourcesCheckFailed(f"{item['id']} 参照检查失败：{c}")
+    ref["grid_hw"] = grid
+    sc = out["selfcheck_max_abs_diff"]
+    return {"ref": ref, "meta": {"id": item["id"], **c, "k": int(ref["k"]), "n_img": int(ref["n_img"]),
+                                 "layers": [int(x) for x in out["layer_ids"]], "grid_hw": grid.tolist(),
+                                 "selfcheck_max_abs_diff": float(np.max(sc)) if len(sc) else None}}
+
+
+def run_reading_gen(cfg, cq: str, root: str, conds: Optional[List[str]] = None, shard: str = "") -> int:
+    """对 fp-model2 生成的记录（$G/obs/records）：中性回答整条回放建参照（root/refs），再回放三种条件的思考开头 token
+    （root/reading）。之后可直接用 reading-analyze / reading-claim / reading-groups。"""
     from .conflict import _engine, _items
     from .pipeline import _atomic_json, _atomic_npz, _check_no_failure, _fail, _shard
-    from .references import build, check
     conds = conds or CONDS
     _check_no_failure(root)
     items = _items(cq)
@@ -231,44 +320,39 @@ def run_reading_pv(cfg, cq: str, root: str, conds: Optional[List[str]] = None, s
     mine = _shard(sorted(items), shard)
     todo = [(i, c) for i in mine for c in conds if not os.path.exists(os.path.join(d, f"{i}__{c}.json"))]
     todo_ref = [i for i in mine if not os.path.exists(os.path.join(root, "refs", f"{i}.npz"))]
-    print(f"[reading-pv] 本进程 {len(mine)} 题：待建参照 {len(todo_ref)} 题，待回放 {len(todo)} 条 → {d}", file=sys.stderr)
+    print(f"[reading-gen] 本进程 {len(mine)} 题：待建参照 {len(todo_ref)} 题，待回放 {len(todo)} 条 → {d}", file=sys.stderr)
     if not todo and not todo_ref:
         return 0
     eng = _engine(cfg)
     b = eng.backend
+    layers, only = record_layers(b.model)
+    print(f"  记录的层：{'全部标准注意力层' if layers is None else f'全局层 {layers}（滑动窗口层不记录）'}", file=sys.stderr)
 
     def record(iid, c):
         return json.load(open(os.path.join(cq, "obs", "records", f"{iid}__{c}.json"), encoding="utf-8"))
     for iid in todo_ref:
         try:
-            rec = record(iid, "neutral")
-            ids = [int(x) for x in rec["input_ids"]] + [int(x) for x in rec["output_ids"]]
-            out = attn.replay_item(b, ids, len(rec["input_ids"]), Image.open(items[iid]["image"]).convert("RGB"),
-                                   keep_positions=False, chunk=cfg.attn_chunk)
-            if out["think"].shape[1] == 0 or out["answer"].shape[1] == 0:
-                raise SourcesCheckFailed(f"{iid}：中性回答缺思考或回答阶段，建不了参照")
-            ref = build(iid, out["think"], out["answer"])
-            c = check(ref)
-            if not c["ok"]:
-                raise SourcesCheckFailed(f"{iid} 参照检查失败：{c}")
-            _atomic_npz(os.path.join(root, "refs", f"{iid}.npz"), ref)
-            _atomic_json(os.path.join(root, "refs", f"{iid}.json"),
-                         {"id": iid, **c, "k": int(ref["k"]), "n_img": int(ref["n_img"]),
-                          "selfcheck_max_abs_diff": float(np.max(out["selfcheck_max_abs_diff"])) if len(out["selfcheck_max_abs_diff"]) else None})
-            print(f"  参照 {iid}：图像 token {int(ref['n_img'])}，关键区域 {int(ref['k'])} 块", file=sys.stderr)
+            r = ref_one(b, cfg, items[iid], record(iid, "neutral"), layers, only)
+            _atomic_npz(os.path.join(root, "refs", f"{iid}.npz"), r["ref"])
+            _atomic_json(os.path.join(root, "refs", f"{iid}.json"), r["meta"])
+            print(f"  参照 {iid}：图像 token {r['meta']['n_img']}（{r['meta']['grid_hw']}），关键区域 {r['meta']['k']} 块，"
+                  f"重算差 {r['meta']['selfcheck_max_abs_diff']}", file=sys.stderr)
         except Exception as e:
-            _fail(root, f"reading_pv_ref_{iid}", e)
+            _fail(root, f"reading_gen_ref_{iid}", e)
             raise
     for n, (iid, c) in enumerate(todo):
         try:
             rec = record(iid, c)
             meta = {"n_out": len(rec["output_ids"]), "close": rec.get("close_position")}
-            m, arrays = reading_one(b, cfg, items[iid], c, rec, meta)
+            skip = think_skip(b.tokenizer, cfg, [int(x) for x in rec["output_ids"]])
+            m, arrays = reading_one(b, cfg, items[iid], c, rec, meta, layers=layers, only=only, skip=skip)
+            m["skip"] = skip
             if arrays:
                 _atomic_npz(os.path.join(d, f"{iid}__{c}.npz"), arrays)
             _atomic_json(os.path.join(d, f"{iid}__{c}.json"), m)
-            print(f"  {n + 1}/{len(todo)} {iid}__{c} 思考开头 token {len(m['rows'])} 个（{m['groups']} 组）", file=sys.stderr)
+            print(f"  {n + 1}/{len(todo)} {iid}__{c} 思考开头 token {len(m['rows'])} 个（{m['groups']} 组，跳过开头标记 {skip} 个）",
+                  file=sys.stderr)
         except Exception as e:
-            _fail(root, f"reading_pv_{iid}__{c}", e)
+            _fail(root, f"reading_gen_{iid}__{c}", e)
             raise
     return len(todo)

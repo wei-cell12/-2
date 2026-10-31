@@ -42,7 +42,7 @@ class EntropyCheckFailed(RuntimeError):
 def _batch(backend, inputs, out_ids):
     torch, model = backend.torch, backend.model
     dev = model.device
-    b = {k: v.to(dev) for k, v in inputs.items()}
+    b = {k: v.to(dev) for k, v in inputs.items() if hasattr(v, "to")}      # 非张量的字段（如图像 token 数的列表）不传
     extra = torch.tensor([out_ids], dtype=b["input_ids"].dtype, device=dev)
     b["input_ids"] = torch.cat([b["input_ids"], extra], 1)
     b["attention_mask"] = torch.ones_like(b["input_ids"])

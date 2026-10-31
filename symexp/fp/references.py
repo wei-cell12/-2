@@ -26,9 +26,11 @@ def _rng(item_id: str, s: int, layer: int, h: int) -> np.random.Generator:
 
 
 def build(item_id: str, think: np.ndarray, answer: np.ndarray, n_heads: int = N_HEADS_SELECTED,
-          frac: float = E_FRACTION) -> Dict[str, np.ndarray]:
+          frac: float = E_FRACTION, layer_ids=None) -> Dict[str, np.ndarray]:
+    """layer_ids：数组第 1 维对应的层号；默认 Qwen3.8 的 16 个标准注意力层（其他模型传入自己记录的层）。"""
+    layers = list(LAYERS if layer_ids is None else [int(x) for x in layer_ids])
     w = np.stack([think, answer]).astype(np.float64)          # [2, L, H, n]
-    if w.ndim != 4 or w.shape[1] != len(LAYERS):
+    if w.ndim != 4 or w.shape[1] != len(layers):
         raise ValueError(f"参照数组形状不对：{w.shape}")
     mass = w.sum(-1, keepdims=True)
     if not (np.isfinite(w).all() and (mass > 0).all()):
@@ -49,11 +51,11 @@ def build(item_id: str, think: np.ndarray, answer: np.ndarray, n_heads: int = N_
             for h in range(H):
                 e = np.argsort(-r[s, l, h], kind="stable")[:k]
                 E[s, l, h, e] = True
-                g = _rng(item_id, s, LAYERS[l], h)
+                g = _rng(item_id, s, layers[l], h)
                 fake = g.choice(np.flatnonzero(~E[s, l, h]), size=k, replace=False)
                 R[s, l, h, fake] = True
                 RW[s, l, h, fake] = g.permutation(r[s, l, h, e])
-    return {"layer_ids": np.array(LAYERS), "r": r, "heads": heads, "E_mask": E, "R_mask": R, "R_weight": RW,
+    return {"layer_ids": np.array(layers), "r": r, "heads": heads, "E_mask": E, "R_mask": R, "R_weight": RW,
             "n_img": np.array(n), "k": np.array(k)}
 
 

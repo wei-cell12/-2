@@ -1421,3 +1421,37 @@ def test_reading_groups_pure_and_pathvqa(tmp_path):
     assert np.mean([x["excess"] for x in ad]) > np.mean([x["excess"] for x in ho])
     rep = open(root / "reading_groups_report.md").read()
     assert "RRAR" in rep and "采纳用户的答案" in rep and "中性时答对的题" in rep
+
+
+def test_reading_gen_helpers():
+    from symexp.fp import reading_groups as rg
+    from symexp.fp.references import build, check
+    # 思考开头标记：Gemma 4 的 <|channel>thought + 换行要跳过；Qwen（提示里已有 <think>）不跳
+    vocab = {1: "<|channel>", 2: "thought", 3: "\n", 4: "The", 5: " hour"}
+    class Tok:
+        def decode(self, ids, skip_special_tokens=False):
+            return "".join(vocab[i] for i in ids)
+    class C:
+        think_prefill, think_open = False, "<|channel>thought"
+    assert rg.think_skip(Tok(), C, [1, 2, 3, 4, 5]) == 3
+    C.think_prefill = True
+    assert rg.think_skip(Tok(), C, [4, 5]) == 0
+    C.think_prefill = False
+    with pytest.raises(rg.SourcesCheckFailed):
+        rg.think_skip(Tok(), C, [4, 5])
+    # 图像 token 的排列：Gemma 4 用图块坐标（x, y）/ 池化核；Qwen 用 grid_thw / merge
+    class B:
+        class processor:
+            class image_processor:
+                pooling_kernel_size = 3
+                merge_size = 2
+    xs, ys = np.meshgrid(np.arange(69), np.arange(66))
+    pos = np.stack([xs.ravel(), ys.ravel()], -1)
+    pos = np.concatenate([pos, -np.ones((30, 2), int)])          # 末尾是填充
+    assert rg.image_grid(B, {"image_position_ids": pos[None]}).tolist() == [22, 23]
+    assert rg.image_grid(B, {"image_grid_thw": np.array([[1, 26, 26]])}).tolist() == [13, 13]
+    # 参照可用别的层号（例如 Gemma 4 的 10 个全局层）
+    rng = np.random.default_rng(0)
+    think, answer = rng.random((10, 32, 50)) + 0.01, rng.random((10, 32, 50)) + 0.01
+    ref = build("CQ-000", think, answer, layer_ids=list(range(5, 60, 6)))
+    assert check(ref)["ok"] and ref["layer_ids"].tolist() == list(range(5, 60, 6)) and ref["heads"].shape == (10, 32)
