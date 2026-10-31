@@ -1369,3 +1369,55 @@ def test_model2_yesno_setup_and_judge(tmp_path):
     json.dump(dict(lab, answer_quote="not in reply"), open(jd / "labels" / f"{k}.json", "w"))
     with pytest.raises(yesno.YesNoCheckFailed):
         yesno.run_summary(str(cq), str(root))
+
+
+def test_reading_groups_pure_and_pathvqa(tmp_path):
+    from symexp.fp import reading_groups as rg
+    from symexp.fp import LAYERS
+    # RRAR：均匀分布 = 1；全部落在区域里 = n / k
+    P = np.full((2, 8), 1 / 8)
+    m = np.zeros(8, bool)
+    m[:2] = True
+    assert np.allclose(rg.rrar(P, m), 1.0)
+    Q = np.zeros(8)
+    Q[:2] = 0.5
+    assert np.isclose(rg.rrar(Q, m), 4.0)
+    assert rg.perm_test(np.array([5.0, 6, 7, 8]), np.array([0.0, 1, 2, 1])) < 0.05
+    assert rg.perm_test(np.array([1.0, 2, 3]), np.array([1.0, 2, 3])) > 0.9
+    # 端到端：4 题，看图头 96 个，n = 10 个图像块
+    L, H, n, Gall = len(LAYERS), 24, 10, 8
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    os.makedirs(root / "reading")
+    os.makedirs(root / "refs")
+    os.makedirs(cq)
+    rng = np.random.default_rng(0)
+    rows = []
+    with open(cq / "items.jsonl", "w") as f:
+        for i in range(4):
+            iid = f"PV-{i:03d}"
+            f.write(json.dumps({"id": iid, "question": "q", "gold": "yes", "claim": "no", "image": "x",
+                                "messages": {"neutral": "q"}}) + "\n")
+            E = np.zeros((2, L, H, n), bool)
+            E[..., :2] = True
+            heads = np.zeros((L, H), bool)
+            heads.ravel()[:96] = True
+            np.savez(root / "refs" / f"{iid}.npz", E_mask=E, heads=heads)
+            for c in rg.CONDS:
+                base = rng.random((Gall, L, H, n))
+                if c == "belief" and i >= 2:              # 被带偏的两题：关键区域的注意力被拿走
+                    base[..., :2] *= 0.2
+                np.savez(root / "reading" / f"{iid}__{c}.npz", dist_sum=base, mass_sum=base.sum(-1),
+                         count=np.full(Gall, 8))
+            rows += [{"arm": "base", "id": iid, "condition": "neutral", "status": "对"},
+                     {"arm": "base", "id": iid, "condition": "belief", "status": "错" if i >= 2 else "对"}]
+    json.dump(rows, open(tmp_path / "yn.json", "w"))
+    bel, neu = rg.outcomes_yesno(str(tmp_path / "yn.json"))
+    assert bel == {"PV-000": "对", "PV-001": "对", "PV-002": "采", "PV-003": "采"}
+    res = rg.run_groups(str(cq), str(root), bel, neu, rg.PV_GROUPS, "pathvqa")
+    P64 = res["windows"]["64"]["全部题"]["items"]
+    ad = [x for x in P64 if x["belief"] == "采"]
+    ho = [x for x in P64 if x["belief"] == "对"]
+    assert all(x["rrar_E_belief"] < x["rrar_E_neutral"] for x in ad)
+    assert np.mean([x["excess"] for x in ad]) > np.mean([x["excess"] for x in ho])
+    rep = open(root / "reading_groups_report.md").read()
+    assert "RRAR" in rep and "采纳用户的答案" in rep and "中性时答对的题" in rep
