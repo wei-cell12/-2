@@ -1,0 +1,38 @@
+{
+  "dataset": "pathvqa",
+  "items": 100,
+  "arms": [
+    "base",
+    "itsm"
+  ],
+  "seed": 42,
+  "thinking_enabled": true,
+  "expected_records": {
+    "base": 300,
+    "itsm": 200
+  },
+  "gpu_groups": [
+    [
+      1,
+      2,
+      6
+    ],
+    [
+      3,
+      5
+    ]
+  ],
+  "shards": 2,
+  "source_sha256": {
+    "configs/gemma4_31b.yaml": "27a09c909ec736348a82bf9a399bdded9f755b07258bfe50a248f4ceb2810ed3",
+    "symexp/fp/model2.py": "ca912dad344e5663b9bb4b2e956ea8c0509724e442286a0be0b71afb891dceb9",
+    "symexp/fp/compare.py": "b14e863861749c4abcf6bd069764c70b66e9469f55fa72a5eb67dd3bee9c4c0d",
+    "symexp/fp/pipeline.py": "567790c0dc0f5ce5d393f02a1cf5911ade52f2899fd0e9ff1c6ceea948017880",
+    "symexp/fp/generate.py": "46837f810a5d9ebabd5dfc9c27aa0676a5c0e6c166a3f1e29fa62281a62996a2",
+    "symexp/backends.py": "e01c97c3ca81e9cf1078e0a3aaf086cd187d7a33ccf692f405bf5a652f77bab2"
+  },
+  "legacy_clock_fields_are_not_pathvqa_judgments": true,
+  "no_interactive_monitoring": true,
+  "entrypoint": "worker: native run_neutralize then native run_arms; metadata-only PathVQA adapter and first-five guard",
+  "repo_commit": "2924e5d31eaa95247d5a6892de58fc5881500d84"
+}

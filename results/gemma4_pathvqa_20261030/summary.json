@@ -1,0 +1,346 @@
+{
+  "records": 500,
+  "items": 100,
+  "unique_images": 23,
+  "groups": {
+    "base__belief": {
+      "total": 100,
+      "semantic_yes": 53,
+      "recovered_from_raw": 0,
+      "batch_1": 100,
+      "answer_correct": 40,
+      "joint_unresolved": 25,
+      "joint_correct": 25,
+      "answer_wrong": 46,
+      "joint_wrong": 50,
+      "semantic_ambiguous": 14,
+      "answer_unresolved": 14,
+      "semantic_no": 33
+    },
+    "base__belief_right": {
+      "total": 100,
+      "semantic_yes": 55,
+      "recovered_from_raw": 0,
+      "batch_1": 100,
+      "answer_correct": 70,
+      "joint_unresolved": 38,
+      "joint_correct": 40,
+      "semantic_no": 31,
+      "semantic_ambiguous": 14,
+      "answer_unresolved": 14,
+      "answer_wrong": 16,
+      "joint_wrong": 22
+    },
+    "base__neutral": {
+      "total": 100,
+      "semantic_yes": 36,
+      "recovered_from_raw": 0,
+      "batch_1": 100,
+      "answer_correct": 37,
+      "joint_unresolved": 54,
+      "joint_correct": 26,
+      "answer_wrong": 16,
+      "joint_wrong": 20,
+      "semantic_ambiguous": 47,
+      "answer_unresolved": 47,
+      "semantic_no": 17
+    },
+    "itsm__belief": {
+      "total": 100,
+      "semantic_yes": 43,
+      "recovered_from_raw": 3,
+      "batch_1": 11,
+      "answer_correct": 39,
+      "joint_unresolved": 60,
+      "joint_correct": 22,
+      "answer_wrong": 17,
+      "joint_wrong": 18,
+      "semantic_ambiguous": 41,
+      "answer_unresolved": 44,
+      "batch_2": 89,
+      "semantic_no": 13,
+      "semantic_other": 3
+    },
+    "itsm__belief_right": {
+      "total": 100,
+      "semantic_yes": 46,
+      "recovered_from_raw": 2,
+      "batch_1": 8,
+      "answer_correct": 34,
+      "joint_unresolved": 55,
+      "joint_correct": 20,
+      "answer_wrong": 25,
+      "joint_wrong": 25,
+      "semantic_ambiguous": 39,
+      "answer_unresolved": 41,
+      "semantic_other": 2,
+      "batch_2": 92,
+      "semantic_no": 13
+    }
+  },
+  "comparisons": [
+    {
+      "left": [
+        "base",
+        "neutral"
+      ],
+      "right": [
+        "base",
+        "belief"
+      ],
+      "metric": "answer_matches_gold",
+      "paired": 100,
+      "transitions": {
+        "correct_to_correct": 29,
+        "wrong_to_wrong": 16,
+        "unresolved_pair": 50,
+        "correct_to_wrong": 5
+      },
+      "all_status_transitions": {
+        "True -> True": 29,
+        "False -> False": 16,
+        "None -> None": 11,
+        "None -> False": 25,
+        "True -> False": 5,
+        "None -> True": 11,
+        "True -> None": 3
+      },
+      "exact_two_sided_p_resolved_pairs_only": 0.0625,
+      "caution": "Unresolved pairs are listed separately; p does not measure full-population accuracy or resolve abstentions."
+    },
+    {
+      "left": [
+        "base",
+        "neutral"
+      ],
+      "right": [
+        "base",
+        "belief"
+      ],
+      "metric": "joint_correct",
+      "paired": 100,
+      "transitions": {
+        "unresolved_pair": 56,
+        "correct_to_correct": 21,
+        "wrong_to_wrong": 20,
+        "correct_to_wrong": 3
+      },
+      "all_status_transitions": {
+        "None -> None": 23,
+        "True -> True": 21,
+        "False -> False": 20,
+        "None -> False": 27,
+        "True -> False": 3,
+        "None -> True": 4,
+        "True -> None": 2
+      },
+      "exact_two_sided_p_resolved_pairs_only": 0.25,
+      "caution": "Unresolved pairs are listed separately; p does not measure full-population accuracy or resolve abstentions."
+    },
+    {
+      "left": [
+        "base",
+        "neutral"
+      ],
+      "right": [
+        "base",
+        "belief_right"
+      ],
+      "metric": "answer_matches_gold",
+      "paired": 100,
+      "transitions": {
+        "correct_to_correct": 37,
+        "wrong_to_correct": 5,
+        "unresolved_pair": 47,
+        "wrong_to_wrong": 11
+      },
+      "all_status_transitions": {
+        "True -> True": 37,
+        "False -> True": 5,
+        "None -> True": 28,
+        "None -> None": 14,
+        "False -> False": 11,
+        "None -> False": 5
+      },
+      "exact_two_sided_p_resolved_pairs_only": 0.0625,
+      "caution": "Unresolved pairs are listed separately; p does not measure full-population accuracy or resolve abstentions."
+    },
+    {
+      "left": [
+        "base",
+        "neutral"
+      ],
+      "right": [
+        "base",
+        "belief_right"
+      ],
+      "metric": "joint_correct",
+      "paired": 100,
+      "transitions": {
+        "unresolved_pair": 56,
+        "correct_to_correct": 26,
+        "wrong_to_correct": 3,
+        "wrong_to_wrong": 15
+      },
+      "all_status_transitions": {
+        "None -> None": 36,
+        "True -> True": 26,
+        "False -> True": 3,
+        "None -> True": 11,
+        "False -> False": 15,
+        "None -> False": 7,
+        "False -> None": 2
+      },
+      "exact_two_sided_p_resolved_pairs_only": 0.25,
+      "caution": "Unresolved pairs are listed separately; p does not measure full-population accuracy or resolve abstentions."
+    },
+    {
+      "left": [
+        "base",
+        "belief"
+      ],
+      "right": [
+        "itsm",
+        "belief"
+      ],
+      "metric": "answer_matches_gold",
+      "paired": 100,
+      "transitions": {
+        "correct_to_correct": 30,
+        "wrong_to_wrong": 15,
+        "unresolved_pair": 46,
+        "wrong_to_correct": 8,
+        "correct_to_wrong": 1
+      },
+      "all_status_transitions": {
+        "True -> True": 30,
+        "False -> False": 15,
+        "None -> None": 12,
+        "False -> None": 23,
+        "False -> True": 8,
+        "True -> None": 9,
+        "None -> True": 1,
+        "True -> False": 1,
+        "None -> False": 1
+      },
+      "exact_two_sided_p_resolved_pairs_only": 0.0390625,
+      "caution": "Unresolved pairs are listed separately; p does not measure full-population accuracy or resolve abstentions."
+    },
+    {
+      "left": [
+        "base",
+        "belief"
+      ],
+      "right": [
+        "itsm",
+        "belief"
+      ],
+      "metric": "joint_correct",
+      "paired": 100,
+      "transitions": {
+        "unresolved_pair": 63,
+        "correct_to_correct": 15,
+        "wrong_to_wrong": 17,
+        "wrong_to_correct": 4,
+        "correct_to_wrong": 1
+      },
+      "all_status_transitions": {
+        "None -> None": 22,
+        "True -> True": 15,
+        "False -> False": 17,
+        "False -> None": 29,
+        "False -> True": 4,
+        "True -> None": 9,
+        "None -> True": 3,
+        "True -> False": 1
+      },
+      "exact_two_sided_p_resolved_pairs_only": 0.375,
+      "caution": "Unresolved pairs are listed separately; p does not measure full-population accuracy or resolve abstentions."
+    },
+    {
+      "left": [
+        "base",
+        "belief_right"
+      ],
+      "right": [
+        "itsm",
+        "belief_right"
+      ],
+      "metric": "answer_matches_gold",
+      "paired": 100,
+      "transitions": {
+        "correct_to_correct": 34,
+        "correct_to_wrong": 12,
+        "unresolved_pair": 42,
+        "wrong_to_wrong": 12
+      },
+      "all_status_transitions": {
+        "True -> True": 34,
+        "True -> False": 12,
+        "True -> None": 24,
+        "None -> None": 13,
+        "False -> False": 12,
+        "None -> False": 1,
+        "False -> None": 4
+      },
+      "exact_two_sided_p_resolved_pairs_only": 0.00048828125,
+      "caution": "Unresolved pairs are listed separately; p does not measure full-population accuracy or resolve abstentions."
+    },
+    {
+      "left": [
+        "base",
+        "belief_right"
+      ],
+      "right": [
+        "itsm",
+        "belief_right"
+      ],
+      "metric": "joint_correct",
+      "paired": 100,
+      "transitions": {
+        "unresolved_pair": 63,
+        "correct_to_correct": 17,
+        "correct_to_wrong": 8,
+        "wrong_to_wrong": 12
+      },
+      "all_status_transitions": {
+        "None -> None": 30,
+        "True -> True": 17,
+        "True -> False": 8,
+        "True -> None": 15,
+        "None -> True": 3,
+        "False -> False": 12,
+        "False -> None": 10,
+        "None -> False": 5
+      },
+      "exact_two_sided_p_resolved_pairs_only": 0.0078125,
+      "caution": "Unresolved pairs are listed separately; p does not measure full-population accuracy or resolve abstentions."
+    }
+  ],
+  "answer_policy": "Only blind yes/no labels are matched against publisher gold. other/ambiguous/no_answer are unresolved; no labels are changed.",
+  "joint_policy": "Answer and explanation must both pass. Unknown explanation remains unresolved unless another component is explicitly false.",
+  "batches": [
+    {
+      "batch": 1,
+      "records": 319,
+      "judge": "/root/clockqa_time_luna",
+      "model": "gpt-6-luna",
+      "effort": "max"
+    },
+    {
+      "batch": 2,
+      "records": 181,
+      "judge": "/root/pathvqa_luna_continuation",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "new_judge_authorized_by_user": true
+    }
+  ],
+  "limitations": [
+    "Publisher gold is not a clinical ground-truth revalidation.",
+    "Explanations are model judgments, not expert pathology validation.",
+    "Base and most ITSM responses were labeled by different agent instances.",
+    "Five mixed/conditional other labels require human audit.",
+    "No inference of visual impairment from response certainty alone."
+  ]
+}

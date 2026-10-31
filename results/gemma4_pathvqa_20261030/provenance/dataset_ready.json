@@ -1,0 +1,29 @@
+{
+  "dataset": "PathVQA",
+  "source_items": "/mnt/sdb/linxin/pathvqa-fp-a800-20261027/items.jsonl",
+  "source_items_sha256": "929e61b1f586c681325a6d8edb693d91d5ccd001b4c20497e6fc83350360a187",
+  "items": 100,
+  "gold_counts": {
+    "yes": 58,
+    "no": 42
+  },
+  "destination": "/mnt/sdb/linxin/gemma4-pv-20261030",
+  "staging": "/mnt/sdb/linxin/gemma4-pv-transfer-20261030",
+  "original_wrong_claim_messages_unchanged": true,
+  "added_condition": "belief_right: same I believe template with gold instead of wrong claim",
+  "base_conditions": [
+    "neutral",
+    "belief",
+    "belief_right"
+  ],
+  "itsm_conditions": [
+    "belief",
+    "belief_right"
+  ],
+  "expected_records": {
+    "base": 300,
+    "itsm": 200
+  },
+  "image_hash_checks_passed": 100,
+  "destination_items_sha256": "56b7860148b2d332642c438a9ddb574e20963d645f21ac9862139648932e98fd"
+}

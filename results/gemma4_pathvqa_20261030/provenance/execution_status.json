@@ -1,0 +1,106 @@
+{
+  "status": "generation_complete_labeling_partial",
+  "server": "59.77.5.51",
+  "repo": "/mnt/sdb/linxin/repo-gemma4",
+  "python": "/home/linxin/anaconda3/envs/gemma4/bin/python",
+  "config": "/mnt/sdb/linxin/repo-gemma4/configs/gemma4_31b.yaml",
+  "config_sha256": "27a09c909ec736348a82bf9a399bdded9f755b07258bfe50a248f4ceb2810ed3",
+  "dataset": "PathVQA",
+  "items": 100,
+  "dataset_root": "/mnt/sdb/linxin/gemma4-pv-20261030",
+  "result_root": "/mnt/sdb/linxin/gemma4-pathvqa-compare-20261030",
+  "arms": [
+    "base",
+    "itsm"
+  ],
+  "skip_arms": [
+    "mmsy"
+  ],
+  "base_conditions": [
+    "neutral",
+    "belief",
+    "belief_right"
+  ],
+  "itsm_conditions": [
+    "belief",
+    "belief_right"
+  ],
+  "expected_records": {
+    "base": 300,
+    "itsm": 200
+  },
+  "thinking_enabled": true,
+  "seed": 42,
+  "pytest_result": "50 passed in 26.87s",
+  "pytest_skipped": 0,
+  "interactive_monitoring": false,
+  "automation_created": false,
+  "user_instruction": "Configure and leave detached server jobs running; no supervision",
+  "judging_status": "First snapshot complete:319 records (base300, ITSM19); remaining181 ITSM records not yet judged.",
+  "gpu_groups": [
+    [
+      1,
+      2,
+      6
+    ],
+    [
+      3,
+      5
+    ]
+  ],
+  "jobs": [
+    {
+      "shard": "0/2",
+      "gpus": [
+        1,
+        2,
+        6
+      ],
+      "pid": 1876438,
+      "command": [
+        "/home/linxin/anaconda3/envs/gemma4/bin/python",
+        "-u",
+        "/mnt/sdb/linxin/gemma4-pathvqa-compare-20261030/worker.py",
+        "--shard",
+        "0/2"
+      ],
+      "log": "/mnt/sdb/linxin/gemma4-pathvqa-compare-20261030/worker_0.log"
+    },
+    {
+      "shard": "1/2",
+      "gpus": [
+        3,
+        5
+      ],
+      "pid": 2263836,
+      "command": [
+        "/home/linxin/anaconda3/envs/gemma4/bin/python",
+        "-u",
+        "/mnt/sdb/linxin/gemma4-pathvqa-compare-20261030/worker.py",
+        "--shard",
+        "1/2"
+      ],
+      "log": "/mnt/sdb/linxin/gemma4-pathvqa-compare-20261030/worker_1.log",
+      "previous_pids": [
+        1876439,
+        2077508
+      ],
+      "resumed_at": 1793373494.3946872
+    }
+  ],
+  "remote_started": true,
+  "temporary_pause_for_clockqa_completed": true,
+  "resumed_worker_pid": 2263836,
+  "saved_results_verified_unchanged": 15,
+  "generation_completed": true,
+  "records": {
+    "base": 300,
+    "itsm": 200
+  },
+  "generation_worker_returncodes": [
+    0,
+    0
+  ],
+  "gpu_processes_naturally_exited": true,
+  "last_verified_at": "2026-10-31T04:44:24.390704+00:00"
+}
