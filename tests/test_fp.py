@@ -1455,3 +1455,85 @@ def test_reading_gen_helpers():
     think, answer = rng.random((10, 32, 50)) + 0.01, rng.random((10, 32, 50)) + 0.01
     ref = build("CQ-000", think, answer, layer_ids=list(range(5, 60, 6)))
     assert check(ref)["ok"] and ref["layer_ids"].tolist() == list(range(5, 60, 6)) and ref["heads"].shape == (10, 32)
+
+
+def test_sinks_pure():
+    from symexp.fp import sinks as sk
+    # 汇维度：第一个 token 在维度 7 上总是巨大，维度 3 只偶尔
+    f = [np.zeros((4, 10)) for _ in range(3)]
+    for x in f:
+        x[:, 7] = 50
+    f[0][0, 3] = 30
+    dims, freq = sk.find_dsink(f)
+    assert dims == [7] and freq[7] == 1.0
+    # 图像 token：第 1 个在维度 7 上巨大 → 汇；第 0 个最大 8 维里没有 7 且第 8 大 < τ → 不是；第 2 个判不了
+    idx = np.array([[[0, 1, 2, 3, 4, 5, 6, 8], [7, 0, 1, 2, 3, 4, 5, 6], [0, 1, 2, 3, 4, 5, 6, 8]]])
+    val = np.array([[[5, 4, 3, 2, 1, 1, 1, 1], [40, 3, 2, 1, 1, 1, 1, 1], [90, 80, 70, 60, 50, 40, 30, 25]]], np.float16)
+    m, unsure = sk.sink_mask(idx, val, [7])
+    assert m.tolist() == [[False, True, False]] and unsure == 1
+    # 去掉汇后重新取关键区域：不会取到汇块
+    r = np.zeros((1, 2, 10))
+    r[..., 0] = 0.9
+    r[..., 1:] = 0.1 / 9
+    r[0, 1, 5] = 0.05
+    sink = np.zeros((1, 10), bool)
+    sink[0, 0] = True
+    E = sk.key_region(r, sink)
+    assert not E[..., 0].any() and E.sum(-1).tolist() == [[2, 2]] and E[0, 1, 5]
+    d = sk.drop_sinks(np.ones((3, 1, 2, 10)), sink)
+    assert d[..., 0].sum() == 0 and d[..., 1:].sum() == 3 * 2 * 9
+    hm = sk.image_heads(np.ones((2, 1, 2, 10)), sink, n_heads=1)
+    assert hm.sum() == 1
+    ov = sk.topk_overlap(r[0][None], r[0][None], sink)
+    assert np.allclose(ov, 1.0)
+
+
+def test_sinks_analyze_end_to_end(tmp_path):
+    from PIL import Image, ImageDraw
+    from symexp.fp import sinks as sk
+    from symexp.fp import LAYERS
+    L, H, n, Gall, D = len(LAYERS), 24, 169, 64, 32
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    for d in ("reading", "refs", "sinks"):
+        os.makedirs(root / d)
+    os.makedirs(cq)
+    img = tmp_path / "c.png"
+    im = Image.new("L", (260, 260), 255)
+    dr = ImageDraw.Draw(im)
+    dr.ellipse([20, 20, 240, 240], outline=0, width=6)
+    dr.line([130, 130, 130, 40], fill=0, width=5)
+    dr.line([130, 130, 200, 130], fill=0, width=7)
+    im.save(img)
+    rng = np.random.default_rng(1)
+    J = {}
+    with open(cq / "items.jsonl", "w") as f:
+        for i in range(6):
+            iid = f"CQ-{i:03d}"
+            claim = "12:15:00" if i % 2 else "7:40:00"
+            f.write(json.dumps({"id": iid, "image": str(img), "gold": "3:00:00", "claim": claim, "question": "q",
+                                "messages": {"neutral": "q"}}) + "\n")
+            r = rng.random((2, L, H, n))
+            r /= r.sum(-1, keepdims=True)
+            E = np.zeros((2, L, H, n), bool)
+            E[..., 10:44] = True
+            heads = np.zeros((L, H), bool)
+            heads.ravel()[:96] = True
+            np.savez(root / "refs" / f"{iid}.npz", r=r, E_mask=E, heads=heads, n_img=np.array(n), grid_hw=np.array([13, 13]))
+            first = np.ones((L, D), np.float16)
+            first[:, 5] = 60
+            ti = np.tile(np.arange(8), (L, n, 1)).astype(np.int32)
+            tv = np.ones((L, n, 8), np.float16)
+            ti[:, 0, 0], tv[:, 0, 0] = 5, 45                       # 第 0 个图像 token 是汇
+            np.savez(root / "sinks" / f"{iid}.npz", first=first, img_top_idx=ti, img_top_val=tv, layers=np.array(LAYERS),
+                     image_pos=np.arange(n))
+            for c in ("neutral", "belief", "belief_right"):
+                x = rng.random((Gall, L, H, n))
+                x[..., 0] += 5                                     # 汇吸走大量注意力
+                np.savez(root / "reading" / f"{iid}__{c}.npz", dist_sum=x, mass_sum=x.sum(-1), count=np.full(Gall, 8))
+            J[f"obs|{iid}|belief"] = {"outcome": ["坚持（答对）", "采纳", "其他"][i % 3]}
+            J[f"obs|{iid}|neutral"] = {"outcome": "坚持（答对）"}
+    json.dump(J, open(tmp_path / "j.json", "w"))
+    res = sk.run_sinks_analyze(str(cq), str(root), str(tmp_path / "j.json"))
+    assert res["dsink"] == [5] and len(res["items"]) == 6
+    rep = open(root / "sinks_report.md").read()
+    assert "关键区域在三种条件下还是不是关键区域" in rep and "按用户说错时的结果分组" in rep and "重合组" in rep
