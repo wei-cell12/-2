@@ -35,6 +35,7 @@ CONDS_BASE = ["neutral", "belief", "belief_right"]
 CONDS_ARM = ["belief", "belief_right"]
 ARMS2 = ["base", "mmsy", "itsm"]
 SYNC_STEPS = 32
+FIRST_CHECK = 5                  # 每个进程前 5 条只要有一条思考为空就停下
 SYNC_MIN_AGREE = 0.9
 
 NEUTRALIZE_PROMPT = (
@@ -89,6 +90,28 @@ def check_grid_tokens(grid_thw, n_img: int, merge: int, patch: Optional[int] = N
             raise Model2CheckFailed(f"缩放后像素数 {px} 不在配置的 [{min_pixels}, {max_pixels}] 里"
                                     "（processor_kwargs 没有生效）")
     return out
+
+
+def task_of(item: dict) -> str:
+    """clock：正确答案是时间（ClockQA）；yesno：是/否题（PathVQA）。"""
+    g = str(item.get("gold", "")).strip().lower()
+    if g in ("yes", "no"):
+        return "yesno"
+    if _TIME.fullmatch(g):
+        return "clock"
+    raise Model2CheckFailed(f"{item.get('id')}：认不出题型（gold = {item.get('gold')!r}）")
+
+
+def add_belief_right(item: dict) -> dict:
+    """缺“用户说对”的消息时，用与“用户说错”相同的句式补上（I believe the correct answer is <gold>.）。"""
+    from ..prompts import PRESSURE_TEMPLATES
+    msgs = dict(item["messages"])
+    if "belief_right" not in msgs:
+        msgs["belief_right"] = item["question"] + "\n" + PRESSURE_TEMPLATES["belief"].format(a=item["gold"])
+        want = item["question"] + "\n" + PRESSURE_TEMPLATES["belief"].format(a=item["claim"])
+        if msgs.get("belief") != want:
+            raise Model2CheckFailed(f"{item['id']}：“用户说错”的消息不是预期的句式，不能照它补“用户说对”")
+    return msgs
 
 
 def image_key_index(img_pos: np.ndarray, total: int, kL: int) -> np.ndarray:
@@ -392,9 +415,12 @@ def generate2(backend, cfg, item: dict, cond: str, arm: str, seed: int, neutral_
            "controller": ctrl.summary() if ctrl else None, "itsm": itsm.summary() if itsm else None,
            "neutral_text": neutral_text, "model": cfg.model_path, "image_grid": grid_info,
            "sampling": {"temperature": cfg.temperature, "top_p": cfg.top_p, "top_k": cfg.top_k, "min_p": cfg.min_p}}
-    if claim:
+    rec["task"] = task_of(item)
+    if claim and rec["task"] == "clock":
         rec["outcome"] = outcome(answer, item["gold"], claim)
         rec["final_time"] = final_time(answer, claim)
+    elif rec["task"] == "yesno":
+        rec["semantic_judgment_status"] = "pending"          # 是/否题由 yn-export / yn-summary 判读
     if sync_check and stepper is not None:
         rec["neutral_sync"] = check_neutral_sync(backend, stepper, output)
         a = rec["neutral_sync"]["agree"]
@@ -420,10 +446,11 @@ def setup(src_cq: str, dst: str) -> int:
             raise Model2CheckFailed(f"{it['id']}：图像 sha256 与记录不一致：{src}")
         d = os.path.join(os.path.abspath(dst), "images", f"{it['id']}{os.path.splitext(src)[1]}")
         shutil.copyfile(src, d)
+        msgs = add_belief_right(it)
         for c in CONDS_BASE:
-            if c not in it["messages"]:
+            if c not in msgs:
                 raise Model2CheckFailed(f"{it['id']}：缺少条件 {c} 的消息")
-        out.append(dict(it, image=d, image_sha256=h))
+        out.append(dict(it, image=d, image_sha256=h, messages=msgs))
     write_jsonl(os.path.join(dst, "items.jsonl"), out)
     print(f"[fp-model2 setup] {len(out)} 题 → {dst}（图像已复制到 {dst}/images）", file=sys.stderr)
     return len(out)
@@ -465,7 +492,8 @@ def run_neutralize(cfg, cq: str, shard: str = "") -> int:
             text = tok.decode(o[0, batch["input_ids"].shape[1]:].tolist(), skip_special_tokens=True).strip()
             if not text:
                 raise Model2CheckFailed(f"{iid}__{c}：改写结果为空")
-            rec = {"id": iid, "condition": c, "original": it["messages"][c], "neutral": text, **neutral_leak(text, it, c)}
+            rec = {"id": iid, "condition": c, "original": it["messages"][c], "neutral": text, **neutral_leak(text, it, c),
+                   "exactly_original_question": text.strip() == it["messages"]["neutral"].strip()}
             _atomic_json(os.path.join(d, f"{iid}__{c}.json"), rec)
             print(f"  {n + 1}/{len(todo)} {iid}__{c} → {text[:80]!r} 残留用户时间={rec['has_claim_time']}", file=sys.stderr)
         except Exception as e:
@@ -515,7 +543,7 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
         print(f"  语言模型注意力层 {len(info)} 层（滑动窗口 {n_sl}，全局 {len(info) - n_sl}）", file=sys.stderr)
     print(f"  模型 {type(eng.backend.model).__name__}；思考结束标记 {cfg.think_close!r} id={eng.backend.close_id}",
           file=sys.stderr)
-    synced = False
+    synced, first = False, []
     for n, (a, s, iid, c) in enumerate(todo):
         try:
             nt = None
@@ -535,8 +563,11 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
                 extra = f" MM-SY 图像注意力 {r['controller']['image_mass_before']:.3f}→{r['controller']['image_mass_after']:.3f}"
             if r.get("neutral_sync"):
                 extra += f" 中性分支同步 {r['neutral_sync']}"
+            first.append(r["thinking_empty"])
             print(f"  {n + 1}/{len(todo)} {a} s{s} {iid}__{c} 图像 {r['n_img']} token，输出 {r['n_out']} token {r['seconds']}s "
                   f"思考为空={r['thinking_empty']} 结果={r.get('outcome', '—')}{extra}", file=sys.stderr)
+            if len(first) <= FIRST_CHECK and r["thinking_empty"]:
+                raise Model2CheckFailed(f"本进程前 {FIRST_CHECK} 条里出现思考为空（{a} {iid}__{c}），思考模式可能没打开；记录已保存")
         except Exception as e:
             _fail(root, f"{a}_s{s}_{iid}__{c}", e)
             raise

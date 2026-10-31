@@ -198,7 +198,7 @@ def main():
     fsr.add_argument("--judgments", default=None, help="analyze：时间判读结果 judgments.json（含 obs|题号|条件）")
     fsr.add_argument("--out", default=None, help="analyze：报告 .md（默认 root/sources_report.md）")
     fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM")
-    fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run"])
+    fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run", "yn-export", "yn-summary"])
     fm2.add_argument("--src-cq", default=None, help="setup：原 ClockQA 目录（读 items.jsonl 和图像）")
     fm2.add_argument("--cq", required=True, help="这个模型的 ClockQA 目录（setup 建；原模型种子 42 的记录写在 obs/records）")
     fm2.add_argument("--root", default=None, help="run：其他方法、其他种子的结果目录")
@@ -330,6 +330,11 @@ def main():
                 fp_model2.setup(a.src_cq, a.cq)
             elif a.phase == "neutralize":
                 fp_model2.run_neutralize(Config.load(a.config, _overrides(a.set)), a.cq, a.shard)
+            elif a.phase in ("yn-export", "yn-summary"):
+                from symexp.fp import yesno as fp_yesno
+                if not a.root:
+                    raise SystemExit(f"--phase {a.phase} 需要 --root")
+                (fp_yesno.run_export if a.phase == "yn-export" else fp_yesno.run_summary)(a.cq, a.root)
             else:
                 if not a.root:
                     raise SystemExit("--phase run 需要 --root")
