@@ -208,9 +208,10 @@ class SourceRecorder:
     """symexp.attn._recording_attention 会调用 stages_for / accumulate，并读 chunk、selfcheck_*。"""
 
     def __init__(self, torch, cats_all: np.ndarray, n_in: int, n_out: int, image_idx, heads: np.ndarray,
-                 chunk: int = 256, selfcheck: int = 2):
+                 chunk: int = 256, selfcheck: int = 2, layers=None):
         self.torch = torch
         self.chunk = chunk
+        self.layers = list(LAYERS if layers is None else layers)
         self.selfcheck_left = selfcheck
         self.selfcheck_diffs: List[float] = []
         self.n_in, self.n_out = n_in, n_out
