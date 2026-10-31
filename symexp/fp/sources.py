@@ -1681,8 +1681,8 @@ class ReadingRecorder:
 
     def result(self) -> Dict[str, np.ndarray]:
         layers = sorted(self.dist)
-        if layers != LAYERS:
-            raise SourcesCheckFailed(f"记录到的层 {layers} 与标准注意力层 {LAYERS} 不一致")
+        if layers != sorted(self.layers):
+            raise SourcesCheckFailed(f"记录到的层 {layers} 与标准注意力层 {self.layers} 不一致")
         n_rows = len(self.group)
         for l in layers:
             if self.filled[l] != n_rows:
