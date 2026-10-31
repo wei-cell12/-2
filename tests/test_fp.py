@@ -1537,3 +1537,42 @@ def test_sinks_analyze_end_to_end(tmp_path):
     assert res["dsink"] == [5] and len(res["items"]) == 6
     rep = open(root / "sinks_report.md").read()
     assert "关键区域在三种条件下还是不是关键区域" in rep and "按用户说错时的结果分组" in rep and "重合组" in rep
+
+
+def test_reading_split(tmp_path):
+    from symexp.fp import reading_groups as rg
+    from symexp.fp import LAYERS
+    L, H, n, Gall = len(LAYERS), 24, 12, 64
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    os.makedirs(root / "reading")
+    os.makedirs(root / "refs")
+    os.makedirs(cq)
+    rng = np.random.default_rng(2)
+    J = {}
+    with open(cq / "items.jsonl", "w") as f:
+        for i in range(8):
+            iid = f"CQ-{i:03d}"
+            claim = "12:15:00" if i < 6 else "7:40:00"            # 前 6 题对调指针（重合），后 2 题指向别处
+            f.write(json.dumps({"id": iid, "image": "x", "gold": "3:00:00", "claim": claim, "question": "q",
+                                "messages": {"neutral": "q"}}) + "\n")
+            E = np.zeros((2, L, H, n), bool)
+            E[..., :3] = True
+            heads = np.zeros((L, H), bool)
+            heads.ravel()[:96] = True
+            np.savez(root / "refs" / f"{iid}.npz", E_mask=E, heads=heads)
+            for c in ("neutral", "belief", "belief_right"):
+                x = rng.random((Gall, L, H, n))
+                if c == "belief" and i in (1, 3, 5):
+                    x[..., :3] *= 0.3
+                np.savez(root / "reading" / f"{iid}__{c}.npz", dist_sum=x, mass_sum=x.sum(-1), count=np.full(Gall, 8))
+            J[f"obs|{iid}|belief"] = {"outcome": "采纳" if i in (1, 3, 5) else "坚持（答对）"}
+            J[f"obs|{iid}|neutral"] = {"outcome": "坚持（答对）"}
+    json.dump(J, open(tmp_path / "j.json", "w"))
+    res = rg.run_split(str(cq), str(root), str(tmp_path / "j.json"))
+    P = res["全部题"]["重合"]["256"]
+    ad = [r for r in P if r["outcome"] == "采"]
+    ho = [r for r in P if r["outcome"] == "对"]
+    assert len(ad) == 3 and len(ho) == 3 and np.mean([r["excess"] for r in ad]) > np.mean([r["excess"] for r in ho])
+    assert all(r["dE"] < 0 for r in ad)
+    rep = open(root / "reading_split_report.md").read()
+    assert "重合组·采纳用户的时间（3 题）：CQ-001、CQ-003、CQ-005" in rep

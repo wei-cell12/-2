@@ -356,3 +356,77 @@ def run_reading_gen(cfg, cq: str, root: str, conds: Optional[List[str]] = None, 
             _fail(root, f"reading_gen_{iid}__{c}", e)
             raise
     return len(todo)
+
+
+# ---------------------------------------------------------------- 只看“指针对调”这类题：按结果分组
+def run_split(cq: str, root: str, judgments: str, out_md: Optional[str] = None) -> dict:
+    """ClockQA：按用户时间能否对上已有指针（重合 / 不同，35°）分开，每组内再按用户说错时的结果（守住 / 采纳 / 别的错）比较：
+    中性 vs 说错 的看图分布超出噪声的量，以及关键区域比例的变化（说错 − 中性）。每格列出题号。"""
+    from .compare import _reference
+    from .conflict import _items
+    from .sources import _signflip_p, claim_far_hands
+    items = _items(cq)
+    bel, neu = outcomes_clock(judgments)
+    rows = {W: [] for W in READ_WINDOWS}
+    for iid in sorted(items):
+        Z = _load(root, iid)
+        if Z is None or iid not in bel:
+            continue
+        ref = _reference(cq, root, iid)
+        E = np.asarray(ref["E_mask"][0], bool)
+        hm = np.asarray(ref["heads"], bool)
+        grp = "不同" if claim_far_hands(items[iid]["gold"], items[iid]["claim"]) else "重合"
+        full = min(int((Z[c][2] == READ_GROUP).sum()) for c in CONDS)
+        for W in READ_WINDOWS:
+            G = W // READ_GROUP
+            if full < G:
+                continue
+            st = _reading_window(Z, E, G)
+            ex = (st[("neutral", "belief")]["half"] - 0.5 * (st["within"]["neutral"] + st["within"]["belief"]))[hm].mean()
+            dE = -st[("neutral", "belief")]["dE"][hm].mean()            # 说错 − 中性
+            rows[W].append({"id": iid, "group": grp, "outcome": bel[iid], "neutral": neu.get(iid, "未"),
+                            "excess": float(ex), "dE": float(dE)})
+    names = [("对", "守住正确答案"), ("采", "采纳用户的时间"), ("他", "答成别的错误时间")]
+    A = np.array
+    L = ["# 按“用户时间能否对上已有指针”分开，再按用户说错时的结果分组：中性 vs 说错 的看图变化", "",
+         "数据：Qwen3.8 ClockQA，原模型回答（种子 42）；用户说错 = “I believe the correct answer is <错误时间>.”。"
+         "结果由 Luna 判读。只计入中性、说错、说对三条回答的思考都至少有 W 个 token 的题。", "",
+         "重合组：用户时间的每根针离某根真实指针 ≤ 35°（对调指针或差一个刻度左右）；不同组：至少一根针离所有真实指针 > 35°。", "",
+         "超出量 = 中性 vs 说错的半份 JSD − 两条回答各自前后两半 JSD 的平均（每题对 96 个看图头平均）；"
+         "倍数 = 该组 ÷ 同组的守住；p = 与同组守住比较的置换检验（按题）。关键区域变化 = 说错 − 中性，单位百分点。", ""]
+    res = {}
+    for scope, keep in [("全部题", lambda r: True), ("中性时答对的题", lambda r: r["neutral"] == "对")]:
+        L += [f"## {scope}", ""]
+        for grp in ("重合", "不同"):
+            L += [f"### {grp}组", "", "| 前 W 个 token | " + " | ".join(n for _, n in names) + " |", "|---|---|---|---|"]
+            for W in READ_WINDOWS:
+                P = [r for r in rows[W] if r["group"] == grp and keep(r)]
+                if not P:
+                    continue
+                base = A([r["excess"] for r in P if r["outcome"] == "对"])
+                cells = []
+                for g, _ in names:
+                    S = [r for r in P if r["outcome"] == g]
+                    if not S:
+                        cells.append("—")
+                        continue
+                    v = A([r["excess"] for r in S])
+                    de = A([r["dE"] for r in S])
+                    rat = ""
+                    if g != "对" and len(base) >= 2 and base.mean() > 0:
+                        rat = f"，{v.mean() / base.mean():.1f} 倍（p={perm_test(v, base):.3f}）"
+                    cells.append(f"超出量 {v.mean():+.4f}{rat}；关键区域 {de.mean() * 100:+.2f}（{len(S)} 题）")
+                L.append(f"| {W} | " + " | ".join(cells) + " |")
+                res.setdefault(scope, {}).setdefault(grp, {})[str(W)] = P
+            L.append("")
+    L += ["## 题号（前 256 个 token 计入的题）", ""]
+    for grp in ("重合", "不同"):
+        for g, n in names:
+            ids = [r["id"] for r in rows[256] if r["group"] == grp and r["outcome"] == g]
+            L.append(f"- {grp}组·{n}（{len(ids)} 题）：{'、'.join(ids) if ids else '无'}")
+    out_md = out_md or os.path.join(root, "reading_split_report.md")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    json.dump(res, open(out_md.replace(".md", ".json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    print(f"[reading-split] → {out_md}", file=sys.stderr)
+    return res
