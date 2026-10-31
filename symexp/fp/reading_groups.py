@@ -430,3 +430,206 @@ def run_split(cq: str, root: str, judgments: str, out_md: Optional[str] = None) 
     json.dump(res, open(out_md.replace(".md", ".json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"[reading-split] → {out_md}", file=sys.stderr)
     return res
+
+
+# ---------------------------------------------------------------- 指针分段：长针针尖 / 短针外侧 等（ClockQA）
+BAND_SPLIT = 0.6        # 半径分界：0.15–0.6 个半径为内段（两根针都有），0.6–1.05 为外段（只有长针伸得到）
+BANDS = [("长针外段", "minute", "out"), ("长针内段", "minute", "in"), ("短针内段", "hour", "in"), ("短针外段", "hour", "out")]
+
+
+def band_mask(geom, grid_hw, angle: float, r0: float, r1: float, width: float = 15.0) -> np.ndarray:
+    """方向在 angle ± width 度以内、离圆心 r0–r1 个半径的图像块。"""
+    from .sources import _adist
+    cx, cy, R, W, H = geom
+    gh, gw = int(grid_hw[0]), int(grid_hw[1])
+    i, j = np.divmod(np.arange(gh * gw), gw)
+    dx, dy = (j + 0.5) / gw * W - cx, (i + 0.5) / gh * H - cy
+    r = np.hypot(dx, dy) / R
+    th = np.degrees(np.arctan2(dx, -dy)) % 360
+    return (r >= r0) & (r <= r1) & np.array([_adist(t, angle) <= width for t in th])
+
+
+def hand_bands(geom, grid_hw, gold: str) -> Dict[str, np.ndarray]:
+    """真实时针、分针各分内外两段；去掉与其他指针扇形重叠的块（两根针挨得近时可能为空）。"""
+    from .sources import SECTOR_DEG
+    a = hand_angles(gold)
+    ang = {"hour": a[0], "minute": a[1]}
+    others = {k: [x for x in a if x != v] for k, v in ang.items()}
+    out = {}
+    for name, hand, seg in BANDS:
+        r0, r1 = (0.15, BAND_SPLIT) if seg == "in" else (BAND_SPLIT, 1.05)
+        m = band_mask(geom, grid_hw, ang[hand], r0, r1)
+        for o in others[hand]:
+            m &= ~band_mask(geom, grid_hw, o, 0.15, 1.05, SECTOR_DEG)
+        out[name] = m
+    return out
+
+
+def claim_type(gold: str, claim: str, sep: float = 35.0) -> str:
+    """对调：用户时间的时针落在真实分针附近、分针落在真实时针附近；偏移：每根针都在对应真实指针附近；不同：其余。"""
+    from .sources import _adist, claim_far_hands
+    if claim_far_hands(gold, claim, sep):
+        return "不同"
+    g, c = hand_angles(gold), hand_angles(claim)
+    if _adist(c[0], g[1]) <= sep and _adist(c[1], g[0]) <= sep and _adist(g[0], g[1]) > sep:
+        return "对调"
+    return "偏移"
+
+
+def hand_angles(t: str) -> List[float]:
+    from .sources import hand_angles as ha
+    return ha(t)
+
+
+def run_reading_scores(cfg, cq: str, root: str, conds: Optional[List[str]] = None, shard: str = "") -> int:
+    """回放思考开头 token，除看图注意力外再记 softmax 之前的分数（root/reading_scores）。
+    有 root/replay/<题>__<条件>.json（Qwen3.8 ClockQA 那次）就用它的输出长度与 </think> 位置；否则用记录本身（fp-model2）。"""
+    from .conflict import _engine, _items
+    from .pipeline import _atomic_json, _atomic_npz, _check_no_failure, _fail, _shard
+    from .sources import ScoreRecorder
+    conds = conds or CONDS
+    _check_no_failure(root)
+    items = _items(cq)
+    d = os.path.join(root, "reading_scores")
+    os.makedirs(d, exist_ok=True)
+    tasks = [(i, c) for i in sorted(items) for c in conds]
+    todo = [t for t in _shard(tasks, shard) if not os.path.exists(os.path.join(d, f"{t[0]}__{t[1]}.json"))]
+    print(f"[reading-scores] 共 {len(tasks)} 条，本进程待做 {len(todo)} 条 → {d}", file=sys.stderr)
+    if not todo:
+        return 0
+    eng = _engine(cfg)
+    b = eng.backend
+    layers, only = record_layers(b.model)
+    for n, (iid, c) in enumerate(todo):
+        try:
+            rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__{c}.json"), encoding="utf-8"))
+            mp = os.path.join(root, "replay", f"{iid}__{c}.json")
+            if os.path.exists(mp):
+                meta, skip = json.load(open(mp, encoding="utf-8")), 0
+            else:
+                meta = {"n_out": len(rec["output_ids"]), "close": rec.get("close_position")}
+                skip = think_skip(b.tokenizer, cfg, [int(x) for x in rec["output_ids"]])
+            m, arrays = reading_one(b, cfg, items[iid], c, rec, meta, layers=layers, only=only, skip=skip,
+                                    recorder_cls=ScoreRecorder)
+            if arrays:
+                ref_p = os.path.join(root, "reading", f"{iid}__{c}.npz")
+                if os.path.exists(ref_p):                       # 与上次存的看图注意力核对：应当一致
+                    with np.load(ref_p) as z:
+                        dev = float(np.abs(z["dist_sum"].astype(np.float64) - arrays["dist_sum"]).max())
+                    m["dist_sum_max_dev_vs_reading"] = dev
+                    if dev > 1e-2:
+                        raise SourcesCheckFailed(f"{iid}__{c}：这次回放的看图注意力与上次 reading 差 {dev:.3g}")
+                _atomic_npz(os.path.join(d, f"{iid}__{c}.npz"), {"rel_sum": arrays["rel_sum"], "count": arrays["count"]})
+            _atomic_json(os.path.join(d, f"{iid}__{c}.json"), m)
+            print(f"  {n + 1}/{len(todo)} {iid}__{c} 思考开头 token {len(m['rows'])} 个"
+                  f"{'，与上次差 %.2g' % m['dist_sum_max_dev_vs_reading'] if 'dist_sum_max_dev_vs_reading' in m else ''}",
+                  file=sys.stderr)
+        except Exception as e:
+            _fail(root, f"reading_scores_{iid}__{c}", e)
+            raise
+    return len(todo)
+
+
+def run_bands(cq: str, root: str, judgments: str, out_md: Optional[str] = None) -> dict:
+    """ClockQA：真实时针、分针各分内外两段，比较中性 vs 用户说错（说错 − 中性）落在各段的注意力比例；
+    有 reading_scores 时再比较各段的相对注意力分数。按用户时间的类型（对调 / 偏移 / 不同）× 用户说错时的结果分组。"""
+    from .compare import _reference
+    from .conflict import _items
+    from .sources import dial_geometry
+    items = _items(cq)
+    bel, neu = outcomes_clock(judgments)
+    sd = os.path.join(root, "reading_scores")
+    rows = {W: [] for W in READ_WINDOWS}
+    skipped = []
+    for iid in sorted(items):
+        Z = _load(root, iid)
+        if Z is None or iid not in bel:
+            continue
+        ref = _reference(cq, root, iid)
+        hm = np.asarray(ref["heads"], bool)
+        grid = ref["grid_hw"] if "grid_hw" in ref else None
+        if grid is None:
+            rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__neutral.json"), encoding="utf-8"))
+            npz = rec.get("npz") or os.path.join(cq, "obs", "attn", f"{iid}__neutral.npz")
+            with np.load(npz) as z:
+                grid = z["grid_hw"]
+        it = items[iid]
+        bands = hand_bands(dial_geometry(it["image"]), grid, it["gold"])
+        if any(not m.any() for m in bands.values()):
+            skipped.append(iid)
+            continue
+        Sc = {}
+        for c in CONDS:
+            p = os.path.join(sd, f"{iid}__{c}.npz")
+            if os.path.exists(p):
+                with np.load(p) as z:
+                    Sc[c] = (z["rel_sum"].astype(np.float64), z["count"])
+        full = min(int((Z[c][2] == READ_GROUP).sum()) for c in CONDS)
+        typ = claim_type(it["gold"], it["claim"])
+        for W in READ_WINDOWS:
+            G = W // READ_GROUP
+            if full < G:
+                continue
+            r = {"id": iid, "type": typ, "outcome": bel[iid], "neutral": neu.get(iid, "未")}
+            for c in CONDS:
+                P = _norm_img(Z[c][0][:G].sum(0))
+                for name, m in bands.items():
+                    r[f"share_{name}_{c}"] = float(P[..., m].sum(-1)[hm].mean())
+                if len(Sc) == 3:
+                    rel = Sc[c][0][:G].sum(0) / max(int(Sc[c][1][:G].sum()), 1)       # [L, H, n] 每个查询的平均相对分数
+                    for name, m in bands.items():
+                        r[f"score_{name}_{c}"] = float(rel[..., m].mean(-1)[hm].mean())
+            rows[W].append(r)
+    names = [("对", "守住正确答案"), ("采", "采纳用户的时间"), ("他", "答成别的错误时间")]
+    A = np.array
+    has_sc = any("score_长针外段_neutral" in r for W in rows for r in rows[W])
+    L = ["# 真实指针分段：被带偏时，注意力从哪一段掉下来", "",
+         "数据：Qwen3.8 ClockQA 原模型回答；用户说错 = “I believe the correct answer is <错误时间>.”；结果由 Luna 判读。"
+         "只计入三种条件的思考都至少有 W 个 token、且四段都不为空的题。", "",
+         f"分段：每根真实指针方向 ±15° 的扇形，按离圆心的距离分成内段（0.15–{BAND_SPLIT} 个半径，长短针都有）和"
+         f"外段（{BAND_SPLIT}–1.05 个半径，只有长针伸得到）；去掉与其他指针扇形重叠的块。"
+         "长针 = 真实分针，短针 = 真实时针。在“对调”题里，长针外段（长针伸到这里）和短针外段（短针伸不到、这里是空的）"
+         "正是与用户答案矛盾的证据。", "",
+         "用户时间的类型：对调 = 用户的时针落在真实分针附近、分针落在真实时针附近（35° 以内）；偏移 = 每根针都在对应真实指针附近；"
+         "不同 = 至少一根针离所有真实指针 > 35°。", "",
+         f"跳过（某段为空，通常是两根针挨得太近）：{'、'.join(skipped) if skipped else '无'}。", ""]
+    metrics = [("share", "注意力比例的变化（说错 − 中性，百分点）", 100.0)]
+    if has_sc:
+        metrics.append(("score", "相对注意力分数的变化（说错 − 中性；分数 = 该段 token 的 softmax 前分数 − 该查询对全部图像 token 的平均分数）", 1.0))
+    res = {}
+    for scope, keep in [("全部题", lambda r: True), ("中性时答对的题", lambda r: r["neutral"] == "对")]:
+        L += [f"## {scope}", ""]
+        for key, title, scale in metrics:
+            L += [f"### {title}", "", "p = 与同类型、守住正确答案的题比较的置换检验（按题）。", ""]
+            for typ in ("对调", "偏移", "不同"):
+                T = []
+                for W in READ_WINDOWS:
+                    P = [r for r in rows[W] if r["type"] == typ and keep(r) and f"{key}_长针外段_neutral" in r]
+                    if not P:
+                        continue
+                    for g, gname in names:
+                        S = [r for r in P if r["outcome"] == g]
+                        if not S:
+                            continue
+                        cells = []
+                        for b in BANDS:
+                            d = A([(r[f"{key}_{b[0]}_belief"] - r[f"{key}_{b[0]}_neutral"]) * scale for r in S])
+                            base = A([(r[f"{key}_{b[0]}_belief"] - r[f"{key}_{b[0]}_neutral"]) * scale for r in P if r["outcome"] == "对"])
+                            pv = f"（p={perm_test(d, base):.3f}）" if g != "对" and len(base) >= 2 else ""
+                            cells.append(f"{d.mean():+.3f}{pv}")
+                        T.append(f"| {W} | {gname} | {len(S)} | " + " | ".join(cells) + " |")
+                L += [f"**{typ}**", ""] + ((["| 前 W 个 token | 结果 | 题数 | " + " | ".join(b[0] for b in BANDS) + " |",
+                                              "|---|---|---|" + "---|" * len(BANDS)] + T) if T else ["（没有这类题）"])
+                res.setdefault(scope, {})[f"{key}_{typ}"] = {str(W): [r for r in rows[W] if r["type"] == typ and keep(r)] for W in READ_WINDOWS}
+                L.append("")
+    L += ["## 题号（前 256 个 token 计入的题）", ""]
+    for typ in ("对调", "偏移", "不同"):
+        for g, gname in names:
+            ids = [r["id"] for r in rows[256] if r["type"] == typ and r["outcome"] == g]
+            L.append(f"- {typ}·{gname}（{len(ids)} 题）：{'、'.join(ids) if ids else '无'}")
+    out_md = out_md or os.path.join(root, "reading_bands_report.md")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    json.dump(res, open(out_md.replace(".md", ".json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    print(f"[reading-bands] 分数{'有' if has_sc else '没有'}；跳过 {len(skipped)} 题 → {out_md}", file=sys.stderr)
+    return res

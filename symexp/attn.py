@@ -157,6 +157,9 @@ def _recording_attention(orig, module, query, key, value, attention_mask, *args,
         else:
             allowed = key_pos[None, :] <= q_pos[s:e][:, None]
             sc = sc.masked_fill(~allowed[None, None], float("-inf"))
+        acc_sc = getattr(rec, "accumulate_scores", None)   # 可选：记录器要 softmax 之前的注意力分数
+        if acc_sc is not None:
+            acc_sc(int(module.layer_idx), sc, q_pos[s:e])
         p = torch.softmax(sc, dim=-1)
         mod = getattr(rec, "modify", None)          # 可选：记录器改写注意力（切断 / 按比例降低），没有就原样
         if mod is not None:

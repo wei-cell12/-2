@@ -1576,3 +1576,78 @@ def test_reading_split(tmp_path):
     assert all(r["dE"] < 0 for r in ad)
     rep = open(root / "reading_split_report.md").read()
     assert "重合组·采纳用户的时间（3 题）：CQ-001、CQ-003、CQ-005" in rep
+
+
+def test_reading_bands(tmp_path):
+    from PIL import Image, ImageDraw
+    from symexp.fp import reading_groups as rg
+    from symexp.fp import LAYERS
+    assert rg.claim_type("3:00:00", "12:15:00") == "对调"
+    assert rg.claim_type("3:00:00", "3:02:00") == "偏移"
+    assert rg.claim_type("3:00:00", "7:40:00") == "不同"
+    img = tmp_path / "c.png"
+    im = Image.new("L", (260, 260), 255)
+    dr = ImageDraw.Draw(im)
+    dr.ellipse([20, 20, 240, 240], outline=0, width=6)
+    im.save(img)
+    from symexp.fp.sources import dial_geometry
+    geom = dial_geometry(str(img))
+    b = rg.hand_bands(geom, [13, 13], "3:00:00")          # 时针指 3（右），分针指 12（上）
+    assert all(m.any() for m in b.values())
+    gw = 13
+    ys, xs = np.divmod(np.flatnonzero(b["长针外段"]), gw)
+    assert ys.mean() < 4 and abs(xs.mean() - 6) < 1.5      # 长针外段在上方靠边
+    ys, xs = np.divmod(np.flatnonzero(b["短针内段"]), gw)
+    assert xs.mean() > 7 and abs(ys.mean() - 6) < 1.5     # 短针内段在右侧靠中
+    assert not (b["长针外段"] & b["长针内段"]).any()
+    # 端到端：对调题里被带偏的回答，长针外段的注意力被拿走
+    L, H, n, Gall = len(LAYERS), 24, 169, 64
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    for d in ("reading", "refs", "reading_scores"):
+        os.makedirs(root / d)
+    os.makedirs(cq)
+    rng = np.random.default_rng(3)
+    J = {}
+    tip = b["长针外段"]
+    with open(cq / "items.jsonl", "w") as f:
+        for i in range(6):
+            iid = f"CQ-{i:03d}"
+            f.write(json.dumps({"id": iid, "image": str(img), "gold": "3:00:00", "claim": "12:15:00", "question": "q",
+                                "messages": {"neutral": "q"}}) + "\n")
+            heads = np.zeros((L, H), bool)
+            heads.ravel()[:96] = True
+            np.savez(root / "refs" / f"{iid}.npz", E_mask=np.zeros((2, L, H, n), bool), heads=heads, grid_hw=np.array([13, 13]))
+            adopt = i % 2 == 1
+            for c in ("neutral", "belief", "belief_right"):
+                x = rng.random((Gall, L, H, n))
+                s = rng.normal(size=(Gall, L, H, n))
+                if c == "belief" and adopt:
+                    x[..., tip] *= 0.2
+                    s[..., tip] -= 2.0
+                np.savez(root / "reading" / f"{iid}__{c}.npz", dist_sum=x, mass_sum=x.sum(-1), count=np.full(Gall, 8))
+                np.savez(root / "reading_scores" / f"{iid}__{c}.npz", rel_sum=s * 8, count=np.full(Gall, 8))
+            J[f"obs|{iid}|belief"] = {"outcome": "采纳" if adopt else "坚持（答对）"}
+            J[f"obs|{iid}|neutral"] = {"outcome": "坚持（答对）"}
+    json.dump(J, open(tmp_path / "j.json", "w"))
+    res = rg.run_bands(str(cq), str(root), str(tmp_path / "j.json"))
+    P = res["全部题"]["share_对调"]["256"]
+    ad = [r for r in P if r["outcome"] == "采"]
+    assert all(r["share_长针外段_belief"] < r["share_长针外段_neutral"] for r in ad)
+    assert all(r["score_长针外段_belief"] < r["score_长针外段_neutral"] - 1 for r in ad)
+    rep = open(root / "reading_bands_report.md").read()
+    assert "相对注意力分数的变化" in rep and "对调·采纳用户的时间（3 题）：CQ-001、CQ-003、CQ-005" in rep
+
+
+def test_score_recorder_matches_softmax():
+    torch = pytest.importorskip("torch")
+    from symexp.fp.sources import ScoreRecorder
+    n_in, n_img = 5, 3
+    rr = ScoreRecorder(torch, [0, 1], n_in, torch.tensor([0, 1, 2]), layers=[3])
+    sc = torch.randn(1, 2, 2, 7)                       # [B, H, c, kL]，查询位置 4、5（输出行 0、1）
+    q = torch.tensor([4, 5])
+    rr.accumulate_scores(3, sc, q)
+    rr.accumulate(3, torch.softmax(sc, -1), None, q)
+    out = rr.result()
+    x = sc[0][:, :, :3]
+    want = (x - x.mean(-1, keepdim=True)).sum(1).numpy()   # 两行同一组
+    assert np.allclose(out["rel_sum"][0, 0], want, atol=1e-5)

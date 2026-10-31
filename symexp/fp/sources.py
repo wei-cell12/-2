@@ -1691,8 +1691,42 @@ class ReadingRecorder:
                 "count": self.cnt}
 
 
+class ScoreRecorder(ReadingRecorder):
+    """在 ReadingRecorder 之外，再记 softmax 之前的注意力分数（query 与 key 的匹配程度）：
+    每个查询对 n 个图像 token 的分数减去它对全部图像 token 分数的平均（softmax 对整体平移不变，只有相对值有意义），
+    每 8 个 token 一组求和，存成 rel_sum [组, 层, 头, n]。"""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.rel = {}
+
+    def accumulate_scores(self, layer_idx: int, sc, q_pos):
+        t = self.torch
+        k = (q_pos - (self.n_in - 1)).cpu()
+        hit = t.isin(k, self.rows_t)
+        if not bool(hit.any()):
+            return
+        idx = hit.nonzero().flatten()
+        x = sc[0][:, idx.to(sc.device), :][:, :, self.image_idx.to(sc.device)].float()      # [H, r, n]
+        if not bool(t.isfinite(x).all()):
+            raise SourcesCheckFailed(f"第 {layer_idx} 层：图像 token 的注意力分数里有被遮挡的位置")
+        x = (x - x.mean(-1, keepdim=True)).cpu().numpy()
+        if layer_idx not in self.rel:
+            self.rel[layer_idx] = np.zeros((self.G, x.shape[0], x.shape[-1]), np.float64)
+        for j, kk in enumerate(k[idx].tolist()):
+            self.rel[layer_idx][self.group[int(kk)]] += x[:, j, :]
+
+    def result(self) -> Dict[str, np.ndarray]:
+        out = super().result()
+        layers = sorted(self.dist)
+        if sorted(self.rel) != layers:
+            raise SourcesCheckFailed(f"分数记录的层 {sorted(self.rel)} 与注意力记录的层 {layers} 不一致")
+        out["rel_sum"] = np.stack([self.rel[l] for l in layers], 1).astype(np.float32)
+        return out
+
+
 def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict, layers=None, only=None,
-                skip: int = 0) -> Tuple[dict, dict]:
+                skip: int = 0, recorder_cls=None) -> Tuple[dict, dict]:
     """layers / only：要记录的层与模块筛选（默认 Qwen3.8 的 16 个标准层）；skip：输出开头跳过的 token 数
     （思考开头标记由模型自己写的模型，如 Gemma 4 的 <|channel>thought，跳过这几个标记 token）。"""
     from .. import attn
@@ -1715,7 +1749,7 @@ def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict, laye
         return {"id": item["id"], "condition": cond, "rows": [], "groups": 0}, {}
     img_tok = attn.image_token_id(backend)
     image_idx = torch.tensor([i for i, x in enumerate(in_ids) if x == img_tok])
-    rr = ReadingRecorder(torch, rows, len(in_ids), image_idx, chunk=cfg.attn_chunk, layers=layers)
+    rr = (recorder_cls or ReadingRecorder)(torch, rows, len(in_ids), image_idx, chunk=cfg.attn_chunk, layers=layers)
     inner = getattr(model, "model", None)
     if inner is not None and hasattr(inner, "rope_deltas"):
         inner.rope_deltas = None
