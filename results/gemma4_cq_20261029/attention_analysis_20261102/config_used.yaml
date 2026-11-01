@@ -1,0 +1,34 @@
+# Gemma 4 31B-it，Hugging Face transformers 后端（需要支持 Gemma 4 的新版 transformers）。
+backend: hf
+model_path: /mnt/sdb/ljh/models/gemma-4-31B-it
+model_class: Gemma4ForConditionalGeneration
+torch_dtype: bfloat16
+device_map: auto
+attn_implementation: sdpa
+workers: 1
+
+# 每张图的 token 数上限（Gemma 4 支持 70/140/280/560/1120；ClockQA 要看清指针，用 560）
+image_max_soft_tokens: 560
+processor_kwargs: {}
+
+# 思考：聊天模板参数 enable_thinking 会在系统提示开头放 <|think|>；思考写成 <|channel>thought … <channel|>，由模型自己写开头
+thinking_template_kwargs: {enable_thinking: true}
+nothinking_template_kwargs: {enable_thinking: false}
+think_open: "<|channel>thought"
+think_close: "<channel|>"
+think_prefill: false
+hf_single_pass: true
+end_markers: ["<turn|>", "<eos>"]
+use_system_prompt: false
+
+# 解码（Gemma 推荐设置；所有方法相同；种子用命令行）
+temperature: 1.0
+top_p: 0.95
+top_k: 64
+min_p: 0.0
+repetition_penalty: 1.0
+
+# 长度上限与 Qwen3.8 那边相同
+think_budget: 4096
+answer_budget: 512
+attn_chunk: 256
