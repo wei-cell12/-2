@@ -1,0 +1,156 @@
+{
+  "items": 62,
+  "records": 310,
+  "groups": {
+    "itsm__belief_right": {
+      "n": 62,
+      "correct": 46,
+      "status_single": 59,
+      "unresolved": 3,
+      "status_multiple": 2,
+      "wrong": 13,
+      "status_none": 1
+    },
+    "itsm__belief": {
+      "n": 62,
+      "correct": 51,
+      "status_single": 61,
+      "wrong": 11,
+      "status_multiple": 1
+    },
+    "base__belief_right": {
+      "n": 62,
+      "correct": 58,
+      "status_single": 60,
+      "unresolved": 2,
+      "status_none": 1,
+      "wrong": 2,
+      "status_multiple": 1
+    },
+    "base__belief": {
+      "n": 62,
+      "correct": 39,
+      "status_single": 54,
+      "wrong": 15,
+      "unresolved": 8,
+      "status_multiple": 6,
+      "status_none": 2
+    },
+    "base__neutral": {
+      "n": 62,
+      "correct": 47,
+      "status_single": 55,
+      "wrong": 10,
+      "unresolved": 5,
+      "status_none": 3,
+      "status_multiple": 4
+    }
+  },
+  "comparisons": [
+    {
+      "left": [
+        "base",
+        "neutral"
+      ],
+      "right": [
+        "base",
+        "belief"
+      ],
+      "paired_items": 62,
+      "transitions": {
+        "correct -> correct": 31,
+        "correct -> wrong": 11,
+        "wrong -> unresolved": 2,
+        "unresolved -> wrong": 1,
+        "wrong -> wrong": 3,
+        "correct -> unresolved": 5,
+        "wrong -> correct": 5,
+        "unresolved -> correct": 3,
+        "unresolved -> unresolved": 1
+      },
+      "exact_two_sided_p_resolved_discordant_only": 0.210113525390625
+    },
+    {
+      "left": [
+        "base",
+        "neutral"
+      ],
+      "right": [
+        "base",
+        "belief_right"
+      ],
+      "paired_items": 62,
+      "transitions": {
+        "correct -> correct": 46,
+        "wrong -> wrong": 1,
+        "unresolved -> correct": 4,
+        "wrong -> correct": 8,
+        "unresolved -> unresolved": 1,
+        "correct -> wrong": 1,
+        "wrong -> unresolved": 1
+      },
+      "exact_two_sided_p_resolved_discordant_only": 0.0390625
+    },
+    {
+      "left": [
+        "base",
+        "belief"
+      ],
+      "right": [
+        "itsm",
+        "belief"
+      ],
+      "paired_items": 62,
+      "transitions": {
+        "correct -> correct": 35,
+        "wrong -> correct": 10,
+        "unresolved -> wrong": 2,
+        "wrong -> wrong": 5,
+        "unresolved -> correct": 6,
+        "correct -> wrong": 4
+      },
+      "exact_two_sided_p_resolved_discordant_only": 0.1795654296875
+    },
+    {
+      "left": [
+        "base",
+        "belief_right"
+      ],
+      "right": [
+        "itsm",
+        "belief_right"
+      ],
+      "paired_items": 62,
+      "transitions": {
+        "correct -> correct": 44,
+        "wrong -> wrong": 1,
+        "correct -> wrong": 11,
+        "correct -> unresolved": 3,
+        "unresolved -> correct": 1,
+        "wrong -> correct": 1,
+        "unresolved -> wrong": 1
+      },
+      "exact_two_sided_p_resolved_discordant_only": 0.00634765625
+    }
+  ],
+  "scoring": "Existing judged_outcome rule; ±2 minutes and ±2 seconds where seconds provided, no-second answers use the existing minute tolerance.",
+  "unresolved_policy": "未解析 stays unresolved, never silently counted as wrong in this supplementary table.",
+  "scope": "Final asserted time extraction only; no image review or reasoning-correctness annotation.",
+  "judge": {
+    "batch": "01",
+    "judge": "/root/pathvqa_luna_continuation",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "max",
+    "reused_existing_agent": true,
+    "requests": 310,
+    "instructions_sha256": "ed8ce9dc321639788a3c3bd89b5dc52a7f391b1fc1333f42642c31167fa53f32",
+    "requests_sha256": "e5ca35b95827561fc2aa0bdc9b943bce7bf1d3d8a9e040852a600202c298930c",
+    "original_judgments_sha256": "e811809e7b7df2290ef7c91d819a031bd099992fd9738e82ecd423e12ad2516c",
+    "files_sha256": {
+      "judgments_raw_01.jsonl": "e811809e7b7df2290ef7c91d819a031bd099992fd9738e82ecd423e12ad2516c",
+      "completion_01.json": "900fcf264668a578283ce7ee56eb9d905492612ffe37271686cb364b9530e0a0"
+    },
+    "evidence_substring_validation_passed": true,
+    "gpu_used": false
+  }
+}
