@@ -191,13 +191,14 @@ def main():
     fcm.add_argument("--seeds", nargs="*", type=int, default=None, help="run：每个方法跑哪些种子（默认只跑 --seed）")
     fcm.add_argument("--out", default=None, help="summary：输出 JSON")
     fsr = sub.add_parser("fp-sources", help="ClockQA：读时间时注意力落在图像还是用户的话上（replay 用 GPU 只读回放，analyze 用 CPU）")
-    fsr.add_argument("--phase", required=True, choices=["replay", "analyze", "tokens", "prompt", "prompt-analyze", "prompt-heads", "cut", "cut-analyze", "reading", "reading-analyze", "reading-claim", "reading-gen", "reading-groups", "sinks", "sinks-analyze", "reading-split", "reading-scores", "reading-bands"])
+    fsr.add_argument("--phase", required=True, choices=["replay", "analyze", "tokens", "prompt", "prompt-analyze", "prompt-heads", "cut", "cut-analyze", "reading", "reading-analyze", "reading-claim", "reading-gen", "reading-groups", "sinks", "sinks-analyze", "reading-split", "reading-scores", "reading-bands", "reading-focus"])
     fsr.add_argument("--cq", required=True, help="ClockQA 目录（读题目、原模型记录、中性注意力）")
     fsr.add_argument("--root", required=True, help="新目录（结果存这里）")
     fsr.add_argument("--conds", nargs="*", default=["neutral", "belief", "belief_right"])
     fsr.add_argument("--judgments", default=None, help="analyze：时间判读结果 judgments.json（含 obs|题号|条件）")
     fsr.add_argument("--out", default=None, help="analyze：报告 .md（默认 root/sources_report.md）")
-    fsr.add_argument("--yn-judgments", default=None, help="reading-groups（PathVQA）：yn-summary 输出的 judgments.json")
+    fsr.add_argument("--yn-judgments", default=None, help="reading-groups / reading-focus（PathVQA）：是/否判读的 judgments.json")
+    fsr.add_argument("--label", default=None, help="reading-focus：报告里写的模型与数据集，如 \"Qwen3.8-27B · ClockQA\"")
     fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM")
     fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run", "yn-export", "yn-summary"])
     fm2.add_argument("--src-cq", default=None, help="setup：原 ClockQA 目录（读 items.jsonl 和图像）")
@@ -334,6 +335,18 @@ def main():
             elif a.phase == "reading-gen":
                 from symexp.fp import reading_groups as fp_rg
                 fp_rg.run_reading_gen(Config.load(a.config, _overrides(a.set)), a.cq, a.root, a.conds, a.shard)
+            elif a.phase == "reading-focus":
+                from symexp.fp import reading_groups as fp_rg
+                if not a.label:
+                    raise SystemExit("--phase reading-focus 需要 --label（模型与数据集）")
+                if a.yn_judgments:
+                    bel, neu = fp_rg.outcomes_yesno(a.yn_judgments)
+                    fp_rg.run_focus(a.cq, a.root, bel, neu, "pathvqa", a.label, a.out)
+                elif a.judgments:
+                    bel, neu = fp_rg.outcomes_clock(a.judgments)
+                    fp_rg.run_focus(a.cq, a.root, bel, neu, "clockqa", a.label, a.out)
+                else:
+                    raise SystemExit("--phase reading-focus 需要 --judgments（ClockQA）或 --yn-judgments（PathVQA）")
             elif a.phase == "reading-groups":
                 from symexp.fp import reading_groups as fp_rg
                 if a.yn_judgments:

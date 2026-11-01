@@ -1651,3 +1651,78 @@ def test_score_recorder_matches_softmax():
     x = sc[0][:, :, :3]
     want = (x - x.mean(-1, keepdim=True)).sum(1).numpy()   # 两行同一组
     assert np.allclose(out["rel_sum"][0, 0], want, atol=1e-5)
+
+
+def test_reading_focus(tmp_path):
+    from PIL import Image, ImageDraw
+    from symexp.fp import reading_groups as rg
+    from symexp.fp import LAYERS
+    from symexp.fp.sources import dial_geometry
+    img = tmp_path / "c.png"
+    im = Image.new("L", (260, 260), 255)
+    ImageDraw.Draw(im).ellipse([20, 20, 240, 240], outline=0, width=6)
+    im.save(img)
+    hands = np.any(np.stack(list(rg.hand_bands(dial_geometry(str(img)), [13, 13], "3:00:00").values())), 0)
+    L, H, n, Gall = len(LAYERS), 24, 169, 64
+    rng = np.random.default_rng(4)
+    heads = np.zeros((L, H), bool)
+    heads.ravel()[:96] = True
+    E = np.zeros((2, L, H, n), bool)
+    E[..., hands] = True
+    # ClockQA：6 题，被带偏（采纳 / 别的错）的题只有用户说错时指针区域的注意力被拿走
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    os.makedirs(root / "reading")
+    os.makedirs(root / "refs")
+    os.makedirs(cq)
+    J = {}
+    with open(cq / "items.jsonl", "w") as f:
+        for i in range(6):
+            iid = f"CQ-{i:03d}"
+            f.write(json.dumps({"id": iid, "image": str(img), "gold": "3:00:00", "claim": "12:15:00", "question": "q",
+                                "messages": {"neutral": "q"}}) + "\n")
+            np.savez(root / "refs" / f"{iid}.npz", E_mask=E, heads=heads, grid_hw=np.array([13, 13]))
+            led = i >= 3
+            for c in rg.CONDS:
+                x = rng.random((Gall, L, H, n)) + 0.5
+                if c == "belief" and led:
+                    x[..., hands] *= 0.5
+                np.savez(root / "reading" / f"{iid}__{c}.npz", dist_sum=x, mass_sum=x.sum(-1), count=np.full(Gall, 8))
+            J[f"obs|{iid}|belief"] = {"outcome": ["坚持（答对）", "采纳", "其他"][(i >= 3) * (1 + i % 2)]}
+            J[f"obs|{iid}|neutral"] = {"outcome": "坚持（答对）"}
+    json.dump(J, open(tmp_path / "j.json", "w"))
+    bel, neu = rg.outcomes_clock(str(tmp_path / "j.json"))
+    res = rg.run_focus(str(cq), str(root), bel, neu, "clockqa", "测试模型 · ClockQA")
+    P = res["scopes"]["中性时答对的题"]["hands"]["64"]
+    led = [r for r in P if r["group"] == "偏"]
+    held = [r for r in P if r["group"] == "对"]
+    assert len(led) == 3 and len(held) == 3
+    assert all(r["hands_belief"] < 0.8 * r["hands_neutral"] and abs(r["hands_belief_right"] / r["hands_neutral"] - 1) < 0.1
+               for r in led)
+    assert all(abs(r["hands_belief"] / r["hands_neutral"] - 1) < 0.1 for r in held)
+    rep = open(root / "reading_focus_report.md").read()
+    assert "数据是什么" in rep and "真实指针区域" in rep and "关键区域 E" in rep
+    assert "被带偏（前 64 个 token 时 3 题）：CQ-003、CQ-004、CQ-005" in rep
+    # PathVQA：Gemma 4 那批的判读格式（answer_matches_gold），只有关键区域 E
+    pq, proot = tmp_path / "pq", tmp_path / "proot"
+    os.makedirs(proot / "reading")
+    os.makedirs(proot / "refs")
+    os.makedirs(pq)
+    rows = []
+    with open(pq / "items.jsonl", "w") as f:
+        for i in range(5):
+            iid = f"PV-{i:03d}"
+            f.write(json.dumps({"id": iid, "image": "x", "gold": "yes", "claim": "no", "question": "q",
+                                "messages": {"neutral": "q"}}) + "\n")
+            np.savez(proot / "refs" / f"{iid}.npz", E_mask=E, heads=heads)
+            for c in rg.CONDS:
+                x = rng.random((Gall, L, H, n)) + 0.5
+                np.savez(proot / "reading" / f"{iid}__{c}.npz", dist_sum=x, mass_sum=x.sum(-1), count=np.full(Gall, 8))
+            rows += [{"arm": "base", "id": iid, "condition": "neutral", "answer_matches_gold": True},
+                     {"arm": "base", "id": iid, "condition": "belief", "answer_matches_gold": [True, True, False, False, None][i]}]
+    json.dump(rows, open(tmp_path / "yn.json", "w"))
+    bel, neu = rg.outcomes_yesno(str(tmp_path / "yn.json"))
+    assert bel["PV-004"] == "未" and bel["PV-002"] == "采"
+    res = rg.run_focus(str(pq), str(proot), bel, neu, "pathvqa", "测试模型 · PathVQA")
+    assert "hands" not in res["scopes"]["全部题"]
+    rep = open(proot / "reading_focus_report.md").read()
+    assert "用户说错时未定、不计入：PV-004" in rep and "真实指针区域" not in rep
