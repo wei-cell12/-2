@@ -191,7 +191,7 @@ def main():
     fcm.add_argument("--seeds", nargs="*", type=int, default=None, help="run：每个方法跑哪些种子（默认只跑 --seed）")
     fcm.add_argument("--out", default=None, help="summary：输出 JSON")
     fsr = sub.add_parser("fp-sources", help="ClockQA：读时间时注意力落在图像还是用户的话上（replay 用 GPU 只读回放，analyze 用 CPU）")
-    fsr.add_argument("--phase", required=True, choices=["replay", "analyze", "tokens", "prompt", "prompt-analyze", "prompt-heads", "cut", "cut-analyze", "reading", "reading-analyze", "reading-claim", "reading-gen", "reading-groups", "sinks", "sinks-analyze", "reading-split", "reading-scores", "reading-bands", "reading-focus", "reading-gen-all", "reading-layers"])
+    fsr.add_argument("--phase", required=True, choices=["replay", "analyze", "tokens", "prompt", "prompt-analyze", "prompt-heads", "cut", "cut-analyze", "reading", "reading-analyze", "reading-claim", "reading-gen", "reading-groups", "sinks", "sinks-analyze", "reading-split", "reading-scores", "reading-bands", "reading-focus", "reading-gen-all", "reading-layers", "stage-export", "stage-summary", "attrib", "attrib-summary"])
     fsr.add_argument("--cq", required=True, help="ClockQA 目录（读题目、原模型记录、中性注意力）")
     fsr.add_argument("--root", required=True, help="新目录（结果存这里）")
     fsr.add_argument("--conds", nargs="*", default=["neutral", "belief", "belief_right"])
@@ -338,6 +338,25 @@ def main():
             elif a.phase == "reading-gen":
                 from symexp.fp import reading_groups as fp_rg
                 fp_rg.run_reading_gen(Config.load(a.config, _overrides(a.set)), a.cq, a.root, a.conds, a.shard)
+            elif a.phase in ("stage-export", "stage-summary"):
+                from symexp.fp import stages as fp_st
+                if not a.label:
+                    raise SystemExit(f"--phase {a.phase} 需要 --label（模型与数据集）")
+                out = os.path.join(a.root, "stage_judge")
+                if a.phase == "stage-export":
+                    fp_st.run_export(a.cq, out, a.label)
+                else:
+                    if not a.judgments:
+                        raise SystemExit("--phase stage-summary 需要 --judgments")
+                    fp_st.run_summary(a.cq, out, a.judgments, a.label)
+            elif a.phase == "attrib":
+                from symexp.fp import attrib as fp_at
+                fp_at.run_attrib(Config.load(a.config, _overrides(a.set)), a.cq, a.root, a.conds, a.shard)
+            elif a.phase == "attrib-summary":
+                from symexp.fp import attrib as fp_at
+                if not (a.judgments and a.label):
+                    raise SystemExit("--phase attrib-summary 需要 --judgments 和 --label")
+                fp_at.run_attrib_summary(a.cq, a.root, a.judgments, a.label, a.out)
             elif a.phase == "reading-gen-all":
                 from symexp.fp import reading_groups as fp_rg
                 fp_rg.run_reading_gen_all(Config.load(a.config, _overrides(a.set)), a.cq, a.root, a.conds, a.shard)

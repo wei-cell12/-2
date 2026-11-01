@@ -169,6 +169,9 @@ def _recording_attention(orig, module, query, key, value, attention_mask, *args,
             p = mod(int(module.layer_idx), p, q_pos[s:e])
         out[:, :, s:e] = torch.matmul(p, vf).to(query.dtype)
         rec.accumulate(int(module.layer_idx), p, stages[s:e], q_pos[s:e])
+        att = getattr(rec, "attribute", None)       # 可选：按来源拆分注意力输出（fp/attrib.py）
+        if att is not None:
+            att(module, p, vf, q_pos[s:e])
         del sc, p
     result = out.transpose(1, 2).contiguous()
     if getattr(rec, "passthrough", False):
