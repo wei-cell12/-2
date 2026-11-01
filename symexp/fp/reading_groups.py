@@ -801,3 +801,285 @@ def run_focus(cq: str, root: str, bel: Dict[str, str], neu: Dict[str, str], data
     print(f"[reading-focus] {label}：各长度的题数 {[len(rows[W]) for W in READ_WINDOWS]}，跳过 {len(skipped)} 题 → {out_md}",
           file=sys.stderr)
     return res
+
+
+# ---------------------------------------------------------------- 所有标准注意力层（含滑动窗口层）的读图回放与分析
+LAYERS_ALL_MAX_TOKENS = 256          # 只记录思考前 256 个 token：这段里图像还完整地在滑动窗口层的视野里
+N_HEADS_PICK = 96
+
+
+def all_layers(model) -> Tuple[List[int], Dict[int, bool]]:
+    """语言模型全部标准注意力层的层号，以及每层是不是滑动窗口层。"""
+    from .. import attn
+    mods = [m for _, m in attn.find_targets(model)]
+    return sorted(int(m.layer_idx) for m in mods), {int(m.layer_idx): bool(getattr(m, "is_sliding", False)) for m in mods}
+
+
+def sliding_window_of(model) -> Optional[int]:
+    from .. import attn
+    w = [getattr(m, "sliding_window", None) for _, m in attn.find_targets(model) if getattr(m, "is_sliding", False)]
+    w = [int(x) for x in w if x]
+    return min(w) if w else None
+
+
+def image_in_window(n_in: int, last_row: int, first_img: int, window: Optional[int]) -> bool:
+    """记录的最后一个查询位置（n_in − 1 + last_row）往前看 window 个位置，是否还能看到第一个图像 token。"""
+    if window is None:
+        return True
+    q = n_in - 1 + last_row
+    return q - (window - 1) <= first_img
+
+
+def run_reading_gen_all(cfg, cq: str, root: str, conds: Optional[List[str]] = None, shard: str = "",
+                        max_tokens: int = LAYERS_ALL_MAX_TOKENS) -> int:
+    """对 fp-model2 的记录（$G/obs/records）：三种条件的思考前 max_tokens 个 token，在**全部**标准注意力层
+    （含滑动窗口层）记录看图注意力，存在 root/reading_all/。前向用原注意力函数的输出（只记录、不替换）。
+    滑动窗口层：要求记录的每个 token 都还能看到整张图，否则报错停下。"""
+    from .. import attn
+    from .conflict import _engine, _items
+    from .generate import build_inputs
+    from .pipeline import _atomic_json, _check_no_failure, _fail, _shard
+    from .sources import reading_one
+    conds = conds or CONDS
+    _check_no_failure(root)
+    items = _items(cq)
+    d = os.path.join(root, "reading_all")
+    os.makedirs(d, exist_ok=True)
+    tasks = [(i, c) for i in _shard(sorted(items), shard) for c in conds]
+    todo = [t for t in tasks if not os.path.exists(os.path.join(d, f"{t[0]}__{t[1]}.json"))]
+    print(f"[reading-gen-all] 本进程 {len(tasks)} 条，待回放 {len(todo)} 条（思考前 {max_tokens} 个 token）→ {d}", file=sys.stderr)
+    if not todo:
+        return 0
+    eng = _engine(cfg)
+    b = eng.backend
+    layers, sliding = all_layers(b.model)
+    win = sliding_window_of(b.model)
+    print(f"  记录的层：{len(layers)} 层（滑动窗口层 {sum(sliding.values())} 层，窗口 {win}；全局层 "
+          f"{[l for l in layers if not sliding[l]]}）", file=sys.stderr)
+    for n, (iid, c) in enumerate(todo):
+        try:
+            rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__{c}.json"), encoding="utf-8"))
+            meta = {"n_out": len(rec["output_ids"]), "close": rec.get("close_position")}
+            skip = think_skip(b.tokenizer, cfg, [int(x) for x in rec["output_ids"]])
+            _, inp = build_inputs(b, items[iid]["image"], items[iid]["messages"][c])
+            ids = inp["input_ids"][0]
+            img = (ids == attn.image_token_id(b)).nonzero().flatten()
+            grid = image_grid(b, inp)
+            if int(grid.prod()) != int(img.numel()):
+                raise SourcesCheckFailed(f"{iid}__{c}：图像 token 排列 {grid.tolist()} 与图像 token 数 {int(img.numel())} 不一致")
+            m, arrays = reading_one(b, cfg, items[iid], c, rec, meta, layers=layers, only=None, skip=skip,
+                                    max_rows=max_tokens, passthrough=True)
+            if m["rows"] and not image_in_window(int(ids.shape[0]), m["rows"][-1], int(img[0]), win):
+                raise SourcesCheckFailed(f"{iid}__{c}：第 {m['rows'][-1]} 行时第一个图像 token 已经滑出 {win} 个 token 的窗口")
+            m.update(skip=skip, grid_hw=grid.tolist(), layer_ids=layers, sliding=[sliding[l] for l in layers], window=win)
+            if arrays:
+                np.savez_compressed(os.path.join(d, f"{iid}__{c}.npz"), dist_sum=arrays["dist_sum"].astype(np.float16),
+                                    mass_sum=arrays["mass_sum"], count=arrays["count"], layer_ids=np.array(layers),
+                                    sliding=np.array([sliding[l] for l in layers]), grid_hw=grid)
+            _atomic_json(os.path.join(d, f"{iid}__{c}.json"), m)
+            chk = "；".join(f"{k} 层第 {v['layer']} 层输出相对差 {v['rel']:.2e}" for k, v in m["output_check"].items())
+            print(f"  {n + 1}/{len(todo)} {iid}__{c} 思考开头 token {len(m['rows'])} 个（跳过开头标记 {skip} 个）；{chk}",
+                  file=sys.stderr)
+        except Exception as e:
+            _fail(root, f"reading_gen_all_{iid}__{c}", e)
+            raise
+    return len(todo)
+
+
+def _jsd(p: np.ndarray, q: np.ndarray) -> np.ndarray:
+    eps = 1e-12
+    m = 0.5 * (p + q)
+    kl = lambda a, b: (a * (np.log(np.maximum(a, eps)) - np.log(np.maximum(b, eps)))).sum(-1)
+    return 0.5 * (kl(p, m) + kl(q, m))
+
+
+def _load_all(path_dir: str, iid: str) -> Optional[dict]:
+    Z = {}
+    for c in CONDS:
+        p = os.path.join(path_dir, f"{iid}__{c}.npz")
+        if not os.path.exists(p):
+            return None
+        with np.load(p) as z:
+            Z[c] = {k: z[k] for k in z.files}
+    return Z
+
+
+def layer_item_stats(Z: dict, hands: Optional[np.ndarray], G: int, head_sets: Dict[str, np.ndarray]) -> dict:
+    """一道题、前 G 组：每个头集合里，按三种条件平均看图总量选出的 96 个头上的
+    指针区域比例、看图总量（每个 token 落在图像上的注意力比例）、条件之间超出噪声的 JSD。"""
+    P, Pe, Po, M = {}, {}, {}, {}
+    for c in CONDS:
+        D = Z[c]["dist_sum"][:G].astype(np.float64)                    # [G, L, H, n]
+        P[c], Pe[c], Po[c] = _norm_img(D.sum(0)), _norm_img(D[0::2].sum(0)), _norm_img(D[1::2].sum(0))
+        M[c] = Z[c]["mass_sum"][:G].astype(np.float64).sum(0) / (READ_GROUP * G)     # [L, H]
+    within = {c: _jsd(Pe[c], Po[c]) for c in CONDS}
+    pairs = [("neutral", "belief"), ("neutral", "belief_right"), ("belief", "belief_right")]
+    ex = {(a, b): _jsd(Pe[a], Pe[b]) - 0.5 * (within[a] + within[b]) for a, b in pairs}
+    score = np.mean([M[c] for c in CONDS], 0)                           # 三种条件平均的看图总量：选头不偏向任何条件
+    out = {}
+    for name, S in head_sets.items():
+        if not S.any():
+            continue
+        flat = np.where(S.ravel(), score.ravel(), -np.inf)
+        k = min(N_HEADS_PICK, int(S.sum()))
+        sel = np.zeros(S.size, bool)
+        sel[np.argsort(-flat, kind="stable")[:k]] = True
+        sel = sel.reshape(S.shape)
+        r = {"heads": int(sel.sum())}
+        for c in CONDS:
+            r[f"mass_{c}"] = float(M[c][sel].mean())
+            if hands is not None:
+                r[f"hands_{c}"] = float(P[c][..., hands].sum(-1)[sel].mean())
+        for (a, b), v in ex.items():
+            r[f"ex_{a}__{b}"] = float(v[sel].mean())
+        out[name] = r
+    return out
+
+
+def run_focus_layers(cq: str, root: str, bel: Dict[str, str], neu: Dict[str, str], dataset: str, label: str,
+                     sub: str = "reading_all", out_md: Optional[str] = None) -> dict:
+    """按层的类型（全局 / 滑动窗口 / 全部）分别：被带偏 vs 守住，三种条件下的指针区域比例、看图总量、看图分布的变化。"""
+    from .conflict import _items
+    from .pipeline import _atomic_json
+    from .sources import LAYERS, _signflip_p, dial_geometry
+    items = _items(cq)
+    d = os.path.join(root, sub)
+    rows = {W: [] for W in READ_WINDOWS}
+    skipped, kinds = [], set()
+    for iid in sorted(items):
+        Z = _load_all(d, iid)
+        if Z is None or iid not in bel:
+            continue
+        z0 = Z["neutral"]
+        L = z0["dist_sum"].shape[1]
+        sl = np.asarray(z0["sliding"], bool) if "sliding" in z0 else np.zeros(L, bool)
+        H = z0["dist_sum"].shape[2]
+        sets = {"全部层": np.ones((L, H), bool)}
+        if sl.any():
+            sets = {"全局层": np.repeat(~sl[:, None], H, 1), "滑动窗口层": np.repeat(sl[:, None], H, 1), **sets}
+        kinds.update(sets)
+        hands = None
+        if dataset == "clockqa":
+            if "grid_hw" in z0:
+                grid = z0["grid_hw"]
+            else:
+                from .compare import _reference
+                ref = _reference(cq, root, iid)
+                grid = ref["grid_hw"] if "grid_hw" in ref else None
+                if grid is None:
+                    r0 = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__neutral.json"), encoding="utf-8"))
+                    with np.load(r0.get("npz") or os.path.join(cq, "obs", "attn", f"{iid}__neutral.npz")) as zz:
+                        grid = zz["grid_hw"]
+            bands = hand_bands(dial_geometry(items[iid]["image"]), grid, items[iid]["gold"])
+            if any(not m.any() for m in bands.values()):
+                skipped.append(iid)
+                continue
+            hands = np.any(np.stack(list(bands.values())), 0)
+        full = min(int((Z[c]["count"] == READ_GROUP).sum()) for c in CONDS)
+        o = bel[iid]
+        grp = "对" if o == "对" else ("偏" if o in ("采", "他") else None)
+        for W in READ_WINDOWS:
+            G = W // READ_GROUP
+            if full >= G and grp is not None:
+                rows[W].append({"id": iid, "group": grp, "neutral": neu.get(iid, "未"),
+                                "stats": layer_item_stats(Z, hands, G, sets)})
+    if not any(rows.values()):
+        raise SourcesCheckFailed(f"{d} 里没有三种条件都读到思考开头 token 的题")
+    A = np.array
+    order = [k for k in ("全局层", "滑动窗口层", "全部层") if k in kinds]
+    clock = dataset == "clockqa"
+    L = [f"# {label}：被带偏时的读图变化，按层的类型分开", "",
+         "## 数据是什么", "",
+         f"- **回答**：{label}，原模型的回答，每题三条：中性（只问问题）；用户说错（问题后加 “I believe the correct answer is <错误答案>.”）；"
+         "用户说对（同一句话，换成正确答案）。",
+         "- **分组**：按用户说错那条回答的最终结果（Luna 判读）：被带偏 = 答错（采纳用户的答案或答成别的错误答案）；守住 = 仍答对。",
+         "- **取哪些 token**：每条回答思考部分的前 W 个 token。只计入三条回答的思考都至少有 W 个 token 的题。",
+         "- **层**：全局层 = 能看到全部序列的注意力层；滑动窗口层 = 只看最近若干个 token 的层（记录的这段 token 里，整张图都还在它们的视野内，"
+         "回放时逐条核对过）。分别报告，再报告全部层合起来的结果。",
+         "- **选头**：每题、每种层，按三种条件平均的看图总量选出 96 个头（不偏向任何一种条件），结果是这 96 个头的平均。",
+         "- **看图分布**：每个头把这 W 个 token 分给图像 token 的注意力加起来，在图像内部归一化（所有图像块加起来 = 100%）。"]
+    if clock:
+        L.append("- **指针区域比例**：看图分布里落在真实指针区域的部分。指针区域 = 每根真实指针方向左右 15°、离圆心 0.15 到 1.05 个半径的扇形"
+                 "（去掉与另一根针扇形重叠的块），由正确时间算出，与注意力无关。")
+    L += ["- **看图总量**：每个 token 的注意力里落在图像上的比例。",
+          "- **看图分布的变化（超出噪声）**：两种条件看图分布的 JSD，减去两条回答各自前后两半之间的 JSD 的平均（每条回答按 8 个 token 一组交替分成两半）。"
+          "正数表示两种条件的差别大于同一条回答内部的波动。",
+          "- **相对变化**：每题 条件A ÷ 条件B − 1，再对组内的题平均。",
+          "- **p（组内）**：每题变化的正负号随机翻转 2 万次，看多大比例的随机结果和实际一样大。**p（组间）**：两组的题随机重新分组 2 万次。", ""]
+    if skipped:
+        L += [f"不计入（两根指针挨得太近，指针区域里有一段是空的）：{'、'.join(skipped)}。", ""]
+    names = [("偏", "被带偏"), ("对", "守住")]
+    res = {"label": label, "skipped": skipped, "kinds": order, "rows": {str(W): rows[W] for W in READ_WINDOWS}}
+    for scope, keep in [("中性时答对的题", lambda r: r["neutral"] == "对"), ("全部题", lambda r: True)]:
+        L += [f"## {scope}", ""]
+        if scope == "全部题":
+            L += ["这里的“被带偏”也包括中性时就答错的题，只作对照。", ""]
+        for kind in order:
+            get = lambda r, k: r["stats"][kind][k]
+            Ws = [W for W in READ_WINDOWS if any(keep(r) and kind in r["stats"] for r in rows[W])]
+            if clock:
+                L += [f"### {kind}：指针区域比例", "",
+                      "| 前 W 个 token | 组（题数） | 中性 | 用户说错 | 用户说对 | 说错 vs 中性 | 说对 vs 中性 | 说错 vs 说对 |",
+                      "|---|---|---|---|---|---|---|---|"]
+                gp = []
+                for W in Ws:
+                    rel = {}
+                    for g, gname in names:
+                        S = [r for r in rows[W] if keep(r) and r["group"] == g and kind in r["stats"]]
+                        if not S:
+                            continue
+                        v = {c: A([get(r, f"hands_{c}") for r in S]) for c in CONDS}
+                        cells = [f"{v[c].mean() * 100:.2f}%" for c in CONDS]
+                        for a, b in (("belief", "neutral"), ("belief_right", "neutral"), ("belief", "belief_right")):
+                            x = _rel(v[a], v[b])
+                            rel[(g, a, b)] = x
+                            cells.append(f"{x.mean() * 100:+.1f}%（p={_signflip_p(x):.3f}）")
+                        L.append(f"| {W} | {gname}（{len(S)}） | " + " | ".join(cells) + " |")
+                    if ("偏", "belief", "neutral") in rel and ("对", "belief", "neutral") in rel:
+                        gp.append(f"- 前 {W} 个 token：说错 vs 中性 p={perm_test(rel[('偏', 'belief', 'neutral')], rel[('对', 'belief', 'neutral')]):.3f}；"
+                                  f"说错 vs 说对 p={perm_test(rel[('偏', 'belief', 'belief_right')], rel[('对', 'belief', 'belief_right')]):.3f}")
+                L += ["", "组间 p（被带偏 vs 守住）：", ""] + gp + [""]
+            L += [f"### {kind}：看图分布的变化（超出噪声的 JSD）", "",
+                  "最后一列：同一批题里，“中性 vs 用户说错”减去“中性 vs 用户说对”，括号里是组内 p。", "",
+                  "| 前 W 个 token | 组（题数） | 中性 vs 用户说错 | 中性 vs 用户说对 | 用户说错 vs 用户说对 | 说错 − 说对 |",
+                  "|---|---|---|---|---|---|"]
+            for W in Ws:
+                for g, gname in names:
+                    S = [r for r in rows[W] if keep(r) and r["group"] == g and kind in r["stats"]]
+                    if not S:
+                        continue
+                    e_b = A([get(r, "ex_neutral__belief") for r in S])
+                    e_r = A([get(r, "ex_neutral__belief_right") for r in S])
+                    e_br = A([get(r, "ex_belief__belief_right") for r in S])
+                    L.append(f"| {W} | {gname}（{len(S)}） | {e_b.mean():+.4f} | {e_r.mean():+.4f} | {e_br.mean():+.4f} | "
+                             f"{(e_b - e_r).mean():+.4f}（p={_signflip_p(e_b - e_r):.3f}） |")
+            L += ["", f"### {kind}：看图总量", "",
+                  "| 前 W 个 token | 组（题数） | 中性 | 用户说错 | 用户说对 | 说错 vs 中性 | 说对 vs 中性 |", "|---|---|---|---|---|---|---|"]
+            for W in Ws:
+                for g, gname in names:
+                    S = [r for r in rows[W] if keep(r) and r["group"] == g and kind in r["stats"]]
+                    if not S:
+                        continue
+                    v = {c: A([get(r, f"mass_{c}") for r in S]) for c in CONDS}
+                    x1, x2 = _rel(v["belief"], v["neutral"]), _rel(v["belief_right"], v["neutral"])
+                    L.append(f"| {W} | {gname}（{len(S)}） | " + " | ".join(f"{v[c].mean() * 100:.2f}%" for c in CONDS) +
+                             f" | {x1.mean() * 100:+.1f}%（p={_signflip_p(x1):.3f}） | {x2.mean() * 100:+.1f}%（p={_signflip_p(x2):.3f}） |")
+            L.append("")
+        L += [f"**{scope}的题号**", ""]
+        W0 = READ_WINDOWS[0]
+        for g, gname in names:
+            ids = [r["id"] for r in rows[W0] if keep(r) and r["group"] == g]
+            L.append(f"- {gname}（前 {W0} 个 token 时 {len(ids)} 题）：{'、'.join(ids) if ids else '无'}")
+            for W in READ_WINDOWS[1:]:
+                have = {r["id"] for r in rows[W] if keep(r) and r["group"] == g}
+                miss = [i for i in ids if i not in have]
+                if miss and any(rows[W]):
+                    L.append(f"  - 前 {W} 个 token 时不计入（思考不够长）：{'、'.join(miss)}")
+        L.append("")
+    out_md = out_md or os.path.join(root, "reading_layers_report.md")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    _atomic_json(out_md.replace(".md", ".json"), res)
+    print(f"[reading-layers] {label}：各长度的题数 {[len(rows[W]) for W in READ_WINDOWS]}，层的类型 {order} → {out_md}",
+          file=sys.stderr)
+    return res

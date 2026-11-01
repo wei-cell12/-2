@@ -1727,7 +1727,8 @@ class ScoreRecorder(ReadingRecorder):
 
 
 def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict, layers=None, only=None,
-                skip: int = 0, recorder_cls=None) -> Tuple[dict, dict]:
+                skip: int = 0, recorder_cls=None, max_rows: Optional[int] = None,
+                passthrough: bool = False) -> Tuple[dict, dict]:
     """layers / only：要记录的层与模块筛选（默认 Qwen3.8 的 16 个标准层）；skip：输出开头跳过的 token 数
     （思考开头标记由模型自己写的模型，如 Gemma 4 的 <|channel>thought，跳过这几个标记 token）。"""
     from .. import attn
@@ -1746,11 +1747,16 @@ def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict, laye
         raise SourcesCheckFailed(f"{item['id']}__{cond}：记录与回放 meta 的输出长度不一致")
     n_think = meta["close"] if meta["close"] is not None else meta["n_out"]
     rows = [skip + r for r in reading_rows(max(n_think - skip, 0))]
+    if max_rows is not None:
+        rows = rows[:max_rows]
+        if rows:
+            out_ids = out_ids[: rows[-1] + 1]          # 只到记录的最后一个 token：因果注意力，后面的 token 不影响前面
     if not rows:
         return {"id": item["id"], "condition": cond, "rows": [], "groups": 0}, {}
     img_tok = attn.image_token_id(backend)
     image_idx = torch.tensor([i for i, x in enumerate(in_ids) if x == img_tok])
     rr = (recorder_cls or ReadingRecorder)(torch, rows, len(in_ids), image_idx, chunk=cfg.attn_chunk, layers=layers)
+    rr.passthrough, rr.rel_checked = passthrough, {}
     inner = getattr(model, "model", None)
     if inner is not None and hasattr(inner, "rope_deltas"):
         inner.rope_deltas = None
@@ -1762,7 +1768,7 @@ def reading_one(backend, cfg, item: dict, cond: str, rec: dict, meta: dict, laye
             model(**_batch(backend, inp, out_ids), use_cache=False, return_dict=True)
     arrays = rr.result()
     m = {"id": item["id"], "condition": cond, "rows": rows, "groups": rr.G, "seconds": round(time.time() - t0, 2),
-         "first_rows": rows[:8], "last_row": rows[-1]}
+         "first_rows": rows[:8], "last_row": rows[-1], "passthrough": passthrough, "output_check": rr.rel_checked}
     return m, arrays
 
 

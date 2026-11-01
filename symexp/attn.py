@@ -156,6 +156,9 @@ def _recording_attention(orig, module, query, key, value, attention_mask, *args,
                 sc = sc + m.float()
         else:
             allowed = key_pos[None, :] <= q_pos[s:e][:, None]
+            win = getattr(module, "sliding_window", None) if getattr(module, "is_sliding", False) else None
+            if win:                                   # 滑动窗口层没给掩码时，自己加上窗口限制
+                allowed = allowed & (key_pos[None, :] > q_pos[s:e][:, None] - int(win))
             sc = sc.masked_fill(~allowed[None, None], float("-inf"))
         acc_sc = getattr(rec, "accumulate_scores", None)   # 可选：记录器要 softmax 之前的注意力分数
         if acc_sc is not None:
@@ -168,6 +171,18 @@ def _recording_attention(orig, module, query, key, value, attention_mask, *args,
         rec.accumulate(int(module.layer_idx), p, stages[s:e], q_pos[s:e])
         del sc, p
     result = out.transpose(1, 2).contiguous()
+    if getattr(rec, "passthrough", False):
+        # 只记录、不替换：前向用原注意力函数的输出（与原模型逐位相同）；每类层（滑动窗口 / 全局）各核对一次
+        # 记录用的概率重算出的输出与原输出的相对差（最大绝对差 ÷ 原输出的最大绝对值）
+        ref = orig(module, query, key, value, attention_mask, *args, **kwargs)
+        kind = "sliding" if getattr(module, "is_sliding", False) else "global"
+        done = getattr(rec, "rel_checked", None)
+        if done is not None and kind not in done:
+            r0 = ref[0].float()
+            done[kind] = {"layer": int(module.layer_idx), "max_abs": float((result.float() - r0).abs().max()),
+                          "ref_max_abs": float(r0.abs().max()),
+                          "rel": float((result.float() - r0).abs().max() / r0.abs().max().clamp_min(1e-6))}
+        return ref
     if rec.selfcheck_left > 0:  # 与原注意力函数的输出比对，确认重算一致
         rec.selfcheck_left -= 1
         ref = orig(module, query, key, value, attention_mask, *args, **kwargs)[0]

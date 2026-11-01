@@ -1773,3 +1773,54 @@ def test_s2va_parse_and_export(tmp_path):
     assert len(pair) == 1 and pair[0]["transitions"] == {"错→对": 1}
     # ClockQA 时间判读导出认得 s2va 目录
     assert [x[1] for x in cmp._run_dirs(str(root))] == ["s2va"]
+
+
+def test_reading_layers(tmp_path):
+    from PIL import Image, ImageDraw
+    from symexp.fp import reading_groups as rg
+    from symexp.fp.sources import dial_geometry
+    # 滑动窗口：查询位置往前 window 个位置内还有第一个图像 token
+    assert rg.image_in_window(575, 256, 4, 1024) and not rg.image_in_window(575, 460, 4, 1024)
+    assert rg.image_in_window(575, 5000, 4, None)
+    p = np.array([0.5, 0.5, 0.0])
+    assert abs(rg._jsd(p, p)) < 1e-12 and rg._jsd(p, np.array([0.0, 0.5, 0.5])) > 0.1
+    img = tmp_path / "c.png"
+    im = Image.new("L", (260, 260), 255)
+    ImageDraw.Draw(im).ellipse([20, 20, 240, 240], outline=0, width=6)
+    im.save(img)
+    hands = np.any(np.stack(list(rg.hand_bands(dial_geometry(str(img)), [13, 13], "3:00:00").values())), 0)
+    Lr, H, n, G = 3, 40, 169, 32
+    sl = np.array([True, False, True])
+    rng = np.random.default_rng(5)
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    os.makedirs(root / "reading_all")
+    os.makedirs(cq)
+    J = {}
+    with open(cq / "items.jsonl", "w") as f:
+        for i in range(6):
+            iid = f"CQ-{i:03d}"
+            f.write(json.dumps({"id": iid, "image": str(img), "gold": "3:00:00", "claim": "12:15:00", "question": "q",
+                                "messages": {"neutral": "q"}}) + "\n")
+            led = i >= 3
+            for c in rg.CONDS:
+                x = rng.random((G, Lr, H, n)) + 0.5
+                if c == "belief" and led:
+                    fac = np.ones((Lr, n))
+                    fac[np.ix_(sl, hands)] = 0.4             # 被带偏的题：只有滑动窗口层少看指针
+                    x *= fac[None, :, None, :]
+                np.savez_compressed(root / "reading_all" / f"{iid}__{c}.npz", dist_sum=x.astype(np.float16),
+                                    mass_sum=x.sum(-1).astype(np.float32) / 200, count=np.full(G, 8), layer_ids=np.array([0, 5, 6]),
+                                    sliding=sl, grid_hw=np.array([13, 13]))
+            J[f"obs|{iid}|belief"] = {"outcome": "采纳" if led else "坚持（答对）"}
+            J[f"obs|{iid}|neutral"] = {"outcome": "坚持（答对）"}
+    json.dump(J, open(tmp_path / "j.json", "w"))
+    bel, neu = rg.outcomes_clock(str(tmp_path / "j.json"))
+    res = rg.run_focus_layers(str(cq), str(root), bel, neu, "clockqa", "测试 · ClockQA")
+    assert res["kinds"] == ["全局层", "滑动窗口层", "全部层"]
+    r64 = res["rows"]["64"]
+    led = [r for r in r64 if r["group"] == "偏"]
+    assert all(r["stats"]["滑动窗口层"]["hands_belief"] < 0.6 * r["stats"]["滑动窗口层"]["hands_neutral"] for r in led)
+    assert all(abs(r["stats"]["全局层"]["hands_belief"] / r["stats"]["全局层"]["hands_neutral"] - 1) < 0.1 for r in led)
+    assert all(r["stats"]["滑动窗口层"]["ex_neutral__belief"] > r["stats"]["滑动窗口层"]["ex_neutral__belief_right"] for r in led)
+    rep = open(root / "reading_layers_report.md").read()
+    assert "### 滑动窗口层：指针区域比例" in rep and "说错 − 说对" in rep and "被带偏（前 64 个 token 时 3 题）：CQ-003、CQ-004、CQ-005" in rep
