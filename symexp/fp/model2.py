@@ -33,7 +33,7 @@ import numpy as np
 MMSY_LAMBDA = 0.9
 CONDS_BASE = ["neutral", "belief", "belief_right"]
 CONDS_ARM = ["belief", "belief_right"]
-ARMS2 = ["base", "mmsy", "itsm"]
+ARMS2 = ["base", "mmsy", "itsm", "readref", "readrand", "leadref", "lead"]
 SYNC_STEPS = 32
 FIRST_CHECK = 5                  # 每个进程前 5 条只要有一条思考为空就停下
 SYNC_MIN_AGREE = 0.9
@@ -262,6 +262,159 @@ class MMSY2:
                 "selfcheck_ratio_max": max((s["max_ratio"] for s in self.selfchecks), default=None)}
 
 
+# ---------------------------------------------------------------- 锚点一 v2：参照来自模型自己的中性读图
+RESTORE_LAMBDA, RESTORE_FLOOR = 1.0, 0.05
+LEAD_MIN, LEAD_MAX = 256, 512        # 先读：中性提问下先写的思考，至少 LEAD_MIN 个 token、在段落结束处停，最多 LEAD_MAX 个
+
+
+def lead_should_stop(n_gen: int, tail_text: str, last_id: int, close_id: int, eos_ids) -> bool:
+    """先读阶段何时停：写到思考结束 / 生成结束，或已满 LEAD_MIN 且刚写完一段（出现空行），或已满 LEAD_MAX。"""
+    if last_id == close_id or last_id in eos_ids:
+        return True
+    if n_gen >= LEAD_MAX:
+        return True
+    return n_gen >= LEAD_MIN and "\n\n" in tail_text
+
+
+class Restore2:
+    """记录层（没有滑动窗口的标准注意力层）、只在生成阶段：
+      observe  每个头分给图像 token 的注意力按阶段（思考 / 回答）累加，用来建参照，不改注意力；
+      restore  在参照选出的 96 个看图头上，用 rules.restore 把关键区域 E 的份额补回参照（λ = 1，每块至少留 5%），
+               图像总量、文字部分不变；region = "R" 时换成同样大小的随机区域（对照）。
+    阶段：处理到思考结束标记那一行起算回答阶段（与 v1 相同）。"""
+
+    def __init__(self, torch, image_pos, layers, close_id: int, mode: str, ref: Optional[dict] = None,
+                 region: str = "E", lam: float = RESTORE_LAMBDA, floor: float = RESTORE_FLOOR,
+                 selfcheck_steps: int = 3, tol: float = 0.05):
+        from .rules import XP
+        if mode not in ("observe", "restore"):
+            raise Model2CheckFailed(f"未知模式 {mode}")
+        self.torch, self.mode, self.region, self.lam, self.floor = torch, mode, region, lam, floor
+        self.layers = [int(x) for x in layers]
+        self.li = {l: k for k, l in enumerate(self.layers)}
+        self.img = np.asarray(image_pos, np.int64)
+        self.close_id, self.stage = int(close_id), 0
+        self.xp = XP("torch")
+        self.ref, self._cache = ref, {}
+        if mode == "restore":
+            if ref is None:
+                raise Model2CheckFailed("restore 需要参照")
+            if [int(x) for x in ref["layer_ids"]] != self.layers:
+                raise Model2CheckFailed(f"参照的层 {list(ref['layer_ids'])} 与记录层 {self.layers} 不一致")
+            if int(ref["n_img"]) != len(self.img):
+                raise Model2CheckFailed(f"参照的图像 token 数 {int(ref['n_img'])} 与本次 {len(self.img)} 不一致")
+        self.sums = None                       # observe：[2, L, H, n]
+        self.rows = [0, 0]
+        self.stats = {s: {"before": 0.0, "after": 0.0, "delta": 0.0, "clamped": 0, "n": 0} for s in (0, 1)}
+        self.selfcheck_steps, self.tol, self.selfchecks, self.calls = selfcheck_steps, tol, [], {}
+
+    def pre_hook(self, module, args, kwargs):
+        """模型每次前向之前：解码步看当前输入的 token，是思考结束标记就从这一行起进入回答阶段。"""
+        ids = kwargs.get("input_ids")
+        if ids is None and args:
+            ids = args[0]
+        if ids is not None and ids.shape[-1] == 1:
+            if int(ids[0, -1]) == self.close_id:
+                self.stage = 1
+            self.rows[self.stage] += 1
+        return None
+
+    def _tensors(self, layer: int, device):
+        key = (layer, str(device), self.stage)
+        if key not in self._cache:
+            t, l = self.torch, self.li[layer]
+            heads = np.flatnonzero(self.ref["heads"][l])
+            m = self.ref["E_mask" if self.region == "E" else "R_mask"][self.stage, l, heads]
+            r = self.ref["r"][self.stage, l, heads] if self.region == "E" else self.ref["R_weight"][self.stage, l, heads]
+            self._cache[key] = (t.as_tensor(heads, dtype=t.long, device=device), t.as_tensor(m, dtype=t.bool, device=device),
+                                t.as_tensor(r, dtype=t.float32, device=device))
+        return self._cache[key]
+
+    def attention(self, orig, tgt, module, query, key, value, attention_mask, *args, **kwargs):
+        from .rules import restore
+        t = self.torch
+        layer = tgt["layer"]
+        if query.shape[2] != 1 or layer not in self.li:
+            return orig(module, query, key, value, attention_mask, *args, **kwargs)
+        if query.shape[0] != 1:
+            raise Model2CheckFailed("只支持 batch=1")
+        kL = key.shape[2]
+        if self.img.max() >= kL:
+            raise Model2CheckFailed(f"第 {layer} 层的 key 只有 {kL} 个位置，图像 token 不在里面（这层不该被记录）")
+        H = query.shape[1]
+        rep = H // key.shape[1]
+        k = key.repeat_interleave(rep, dim=1) if rep > 1 else key
+        v = value.repeat_interleave(rep, dim=1) if rep > 1 else value
+        scale = kwargs.get("scaling", args[1] if len(args) > 1 else None)
+        if scale is None:
+            scale = getattr(module, "scaling", query.shape[-1] ** -0.5)
+        sc = t.matmul(query.float(), k.float().transpose(-1, -2)) * scale
+        if attention_mask is not None:
+            m = attention_mask[:, :, -1:, -kL:]
+            sc = sc.masked_fill(~m, float("-inf")) if m.dtype == t.bool else sc + m.float()
+        p = t.softmax(sc, dim=-1)                                     # [1, H, 1, kL]
+        ii = t.as_tensor(self.img, device=query.device)
+        cnt = self.calls.get(layer, 0)
+        self.calls[layer] = cnt + 1
+        if cnt < self.selfcheck_steps:
+            plain = t.matmul(p, v.float()).transpose(1, 2)
+            refo = orig(module, query, key, value, attention_mask, *args, **kwargs)[0].float()
+            d = (plain - refo).abs()
+            ratio = float((d / t.clamp(refo.abs() * 2.0 ** -6, min=self.tol)).max())
+            self.selfchecks.append({"layer": layer, "step": cnt, "max_ratio": ratio})
+            if not ratio <= 1.0:
+                raise Model2CheckFailed(f"显式注意力与原函数不一致：layer={layer} 允许差之比={ratio:.3f}")
+        row = p[0, :, 0]                                              # [H, kL]
+        if self.mode == "observe":
+            pim = row.index_select(1, ii).double().cpu().numpy()      # [H, n]
+            if self.sums is None:
+                self.sums = np.zeros((2, len(self.layers), H, len(self.img)), np.float64)
+            self.sums[self.stage, self.li[layer]] += pim
+            return orig(module, query, key, value, attention_mask, *args, **kwargs)
+        heads, mask, r = self._tensors(layer, query.device)
+        pim = row.index_select(0, heads).index_select(1, ii)          # [h, n]
+        new, info = restore(self.xp, pim, mask, r, self.lam, self.floor)
+        row2 = row.clone()
+        row2[heads[:, None], ii[None, :]] = new.to(row2.dtype)
+        st = self.stats[self.stage]
+        st["before"] += float(info["region_before"].mean())
+        st["after"] += float(info["region_after"].mean())
+        st["delta"] += float(info["delta"].mean())
+        st["clamped"] += int(info["clamped"].sum())
+        st["n"] += 1
+        out = t.matmul(row2[None, :, None, :], v.float()).to(query.dtype).transpose(1, 2).contiguous()
+        return out, None
+
+    def summary(self) -> dict:
+        s = {"mode": self.mode, "region": self.region, "lambda": self.lam, "floor": self.floor, "layers": self.layers,
+             "rows_think": self.rows[0], "rows_answer": self.rows[1],
+             "selfcheck_ratio_max": max((x["max_ratio"] for x in self.selfchecks), default=None)}
+        for k, name in ((0, "think"), (1, "answer")):
+            st = self.stats[k]
+            n = max(st["n"], 1)
+            s[name] = {"calls": st["n"], "region_before": st["before"] / n, "region_after": st["after"] / n,
+                       "delta": st["delta"] / n, "clamped_heads": st["clamped"]}
+        return s
+
+
+def record_layers2(info: dict) -> List[int]:
+    """锚点一记录 / 干预的层：没有滑动窗口的标准注意力层（Qwen 系列 = 全部标准层；Gemma 4 = 全局层）。"""
+    return sorted(l for l, v in info.items() if not v["sliding"])
+
+
+def ref_from_sums(item_id: str, sums: np.ndarray, layers: List[int], answer_from_think: bool) -> Tuple[dict, dict]:
+    """observe 累加的 [2, L, H, n] → 参照（看图头 96 个、每头关键区域 E = 前 20%、随机对照区域 R）。"""
+    from .references import build, check
+    think, answer = sums[0], sums[1]
+    if answer_from_think:
+        answer = think
+    ref = build(item_id, think, answer, layer_ids=layers)
+    c = check(ref)
+    if not c["ok"]:
+        raise Model2CheckFailed(f"{item_id} 参照检查失败：{c}")
+    return ref, c
+
+
 # ---------------------------------------------------------------- ITSM：中性分支逐步跟进
 class NeutralStepper:
     def __init__(self, backend, image: str, text: str, keep_steps: int = 0):
@@ -430,6 +583,191 @@ def generate2(backend, cfg, item: dict, cond: str, arm: str, seed: int, neutral_
     return rec
 
 
+# ---------------------------------------------------------------- 锚点一 v2 的生成
+A1_ARMS = {
+    # 方法名: (参照从哪来, 主生成时干预的区域；None = 不改注意力)
+    "readref":  ("read", "E"),       # 额外调用一次：中性提问下完整回答一遍，取其看图分布作参照；受压回答全程补回关键区域
+    "readrand": ("read", "R"),       # 同上，但补到同样大小的随机区域（对照）
+    "leadref":  ("lead", "E"),       # 先读：中性提问下先写一段思考，接到受压提示后面继续写；参照取这段的看图分布，之后全程补回
+    "lead":     ("lead", None),      # 只做先读，不改注意力（拆开“干净的开头”和“注意力补回”各自的作用）
+}
+
+
+def _to_dev(backend, inputs):
+    dev = backend.model.device
+    b = {k: v.to(dev) for k, v in inputs.items() if hasattr(v, "to")}
+    if "pixel_values" in b:
+        b["pixel_values"] = b["pixel_values"].to(backend.model.dtype)
+    return b
+
+
+def extend_inputs(inputs: dict, extra: List[int]) -> dict:
+    """在提示后面接上已写好的输出 token：input_ids 接上，attention_mask 接 1，其他与 input_ids 同形状的逐 token 张量接 0。"""
+    import torch
+    n = int(inputs["input_ids"].shape[1])
+    add = torch.tensor([extra], dtype=inputs["input_ids"].dtype)
+    out = {}
+    for k, v in inputs.items():
+        if hasattr(v, "shape") and tuple(v.shape) == (1, n):
+            if k == "input_ids":
+                out[k] = torch.cat([v, add], 1)
+            elif k == "attention_mask":
+                out[k] = torch.cat([v, torch.ones_like(add, dtype=v.dtype)], 1)
+            else:
+                out[k] = torch.cat([v, torch.zeros_like(add, dtype=v.dtype)], 1)
+        else:
+            out[k] = v
+    return out
+
+
+def _sample(backend, cfg, batch, seed: int, max_new: int, procs, stopping=None, ctrl=None):
+    torch, tf, model = backend.torch, backend.transformers, backend.model
+    inner = getattr(model, "model", None)
+    if inner is not None and hasattr(inner, "rope_deltas"):
+        inner.rope_deltas = None                 # Qwen 的多模态位置编码偏移：每次新提示都重算
+    tf.set_seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    h = model.register_forward_pre_hook(ctrl.pre_hook, with_kwargs=True) if ctrl is not None else None
+    try:
+        with torch.inference_mode(), active(ctrl):
+            out = model.generate(**batch, do_sample=True, temperature=cfg.temperature, top_p=cfg.top_p, top_k=cfg.top_k,
+                                 min_p=cfg.min_p, repetition_penalty=cfg.repetition_penalty, max_new_tokens=max_new,
+                                 use_cache=True, logits_processor=tf.LogitsProcessorList(procs),
+                                 stopping_criteria=tf.StoppingCriteriaList(stopping or []))
+    finally:
+        if h is not None:
+            h.remove()
+    return out[0, int(batch["input_ids"].shape[1]):].tolist()
+
+
+def _lead_stopper(backend):
+    tf, torch, tok = backend.transformers, backend.torch, backend.tokenizer
+    eos = backend.model.generation_config.eos_token_id
+    eos = set(eos if isinstance(eos, list) else [eos])
+
+    class LeadStop(tf.StoppingCriteria):
+        def __init__(self, n_in):
+            self.n_in = n_in
+
+        def __call__(self, input_ids, scores, **kw):
+            gen = input_ids[0, self.n_in:].tolist()
+            tail = tok.decode(gen[-3:], skip_special_tokens=False) if gen else ""
+            stop = bool(gen) and lead_should_stop(len(gen), tail, gen[-1], backend.close_id, eos)
+            return torch.full((input_ids.shape[0],), stop, dtype=torch.bool, device=input_ids.device)
+    return LeadStop
+
+
+def reference_a1(backend, cfg, item: dict, cond: str, source: str, seed: int, neutral_text: str, layers: List[int],
+                 root: str) -> Tuple[dict, dict]:
+    """参照（同一题、同一条件、同一种子只做一次，存在 root/refs_<source>/）。
+    read：中性提问下完整回答一遍（思考 + 回答两个阶段的看图分布）；
+    lead：中性提问下只写思考开头一段（lead_should_stop），回答阶段的参照用思考阶段的。"""
+    from .generate import build_inputs, make_budget
+    from .pipeline import _atomic_json, _atomic_npz
+    torch, tf, tok = backend.torch, backend.transformers, backend.tokenizer
+    d = os.path.join(root, f"refs_{source}")
+    base = os.path.join(d, f"{item['id']}__{cond}__s{seed}")
+    if os.path.exists(base + ".npz") and os.path.exists(base + ".json"):
+        with np.load(base + ".npz") as z:
+            return {k: z[k] for k in z.files}, json.load(open(base + ".json", encoding="utf-8"))
+    from ..attn import image_token_id
+    _, inp = build_inputs(backend, item["image"], neutral_text)
+    ids = inp["input_ids"][0]
+    img_pos = (ids == image_token_id(backend)).nonzero().flatten().cpu().numpy()
+    n_in = int(ids.shape[0])
+    ctrl = Restore2(torch, img_pos, layers, backend.close_id, "observe")
+    batch = _to_dev(backend, inp)
+    t0 = time.time()
+    if source == "read":
+        gc = backend.model.generation_config
+        eos = gc.eos_token_id if isinstance(gc.eos_token_id, list) else [gc.eos_token_id]
+        budget = make_budget(tf, torch, n_in, backend.close_id, int(eos[0]), cfg.think_budget, cfg.answer_budget)
+        out = _sample(backend, cfg, batch, seed, cfg.think_budget + cfg.answer_budget + 2, [budget], ctrl=ctrl)
+    elif source == "lead":
+        out = _sample(backend, cfg, batch, seed, LEAD_MAX, [], [_lead_stopper(backend)(n_in)], ctrl=ctrl)
+    else:
+        raise Model2CheckFailed(f"未知参照来源 {source}")
+    if ctrl.sums is None or ctrl.rows[0] == 0:
+        raise Model2CheckFailed(f"{item['id']}__{cond}：参照生成没有记录到思考阶段")
+    dec = lambda x: tok.decode(x, skip_special_tokens=True)
+    thinking, answer, close = split_output(dec, out, backend.close_id, cfg.think_open)
+    no_answer = ctrl.rows[1] == 0 or source == "lead"
+    ref, chk = ref_from_sums(item["id"], ctrl.sums, layers, answer_from_think=no_answer)
+    meta = {"id": item["id"], "condition": cond, "seed": seed, "source": source, "neutral_text": neutral_text,
+            "n_in": n_in, "n_out": len(out), "output_ids": out, "thinking": thinking, "answer": answer,
+            "close_position": close, "rows_think": ctrl.rows[0], "rows_answer": ctrl.rows[1],
+            "answer_ref_from_think": no_answer, "seconds": round(time.time() - t0, 2), "check": chk,
+            "selfcheck_ratio_max": ctrl.summary()["selfcheck_ratio_max"]}
+    if source == "lead":
+        lead = list(out)
+        while lead and (lead[-1] == backend.close_id or lead[-1] in set(np.atleast_1d(backend.model.generation_config.eos_token_id).tolist())):
+            lead.pop()
+        meta["lead_ids"] = lead
+    os.makedirs(d, exist_ok=True)
+    _atomic_npz(base + ".npz", ref)
+    _atomic_json(base + ".json", meta)
+    return ref, meta
+
+
+def generate_a1(backend, cfg, item: dict, cond: str, arm: str, seed: int, neutral_text: str, layer_info: dict,
+                root: str) -> dict:
+    """锚点一 v2：先取参照（read / lead），再生成受压回答；参照来源与干预区域见 A1_ARMS。"""
+    from ..attn import image_token_id
+    from .generate import build_inputs, make_budget
+    from .verify import final_time, outcome
+    torch, tf, model, tok = backend.torch, backend.transformers, backend.model, backend.tokenizer
+    if backend.close_id is None:
+        raise Model2CheckFailed(f"思考结束标记 {cfg.think_close!r} 不是单个 token")
+    if not neutral_text:
+        raise Model2CheckFailed("锚点一 v2 需要模型自己改写的中性提问")
+    source, region = A1_ARMS[arm]
+    layers = record_layers2(layer_info)
+    ref, meta = reference_a1(backend, cfg, item, cond, source, seed, neutral_text, layers, root)
+    prompt, inputs = build_inputs(backend, item["image"], item["messages"][cond])
+    ids = inputs["input_ids"][0]
+    img_pos = (ids == image_token_id(backend)).nonzero().flatten().cpu().numpy()
+    n_in = int(ids.shape[0])
+    lead = (meta.get("lead_ids") or []) if source == "lead" else []
+    if lead:
+        inputs = extend_inputs(inputs, lead)
+    batch = _to_dev(backend, inputs)
+    gc = model.generation_config
+    eos = gc.eos_token_id if isinstance(gc.eos_token_id, list) else [gc.eos_token_id]
+    tb, ab = cfg.think_budget, cfg.answer_budget
+    budget = make_budget(tf, torch, n_in, backend.close_id, int(eos[0]), tb, ab)     # 先读的 token 算在思考预算里
+    ctrl = Restore2(torch, img_pos, layers, backend.close_id, "restore", ref=ref, region=region) if region else None
+    t0 = time.time()
+    gen = _sample(backend, cfg, batch, seed, tb + ab + 2 - len(lead), [budget], ctrl=ctrl)
+    seconds = round(time.time() - t0, 2)
+    output = lead + gen
+    if ctrl is not None and ctrl.rows[0] + ctrl.rows[1] != max(len(gen) - 1, 0):
+        raise Model2CheckFailed(f"干预记录的解码步数 {ctrl.rows[0] + ctrl.rows[1]} 与生成 token 数 {len(gen)} − 1 不一致")
+    dec = lambda x: tok.decode(x, skip_special_tokens=True)
+    thinking, answer, close = split_output(dec, output, backend.close_id, cfg.think_open)
+    from .conflict import claim_of
+    claim = claim_of(item, cond)
+    rec = {"prompt_text": prompt, "input_ids": ids.tolist(), "output_ids": output, "raw_output": tok.decode(output, skip_special_tokens=False),
+           "thinking": thinking, "answer": answer, "n_in": n_in, "n_out": len(output), "n_img": int(len(img_pos)),
+           "seconds": seconds, "seed": seed, "budget": budget.metadata(), "arm": arm, "id": item["id"],
+           "condition": cond, "gold": item["gold"], "claim": claim, "message": item["messages"][cond],
+           "image": item["image"], "image_sha256": item.get("image_sha256"),
+           "thinking_empty": not thinking.strip(), "close_position": close,
+           "controller": ctrl.summary() if ctrl else None, "neutral_text": neutral_text, "model": cfg.model_path,
+           "a1": {"source": source, "region": region, "lead_tokens": len(lead),
+                  "lead_text": dec(lead) if lead else None,
+                  "reference": {k: v for k, v in meta.items() if k not in ("output_ids", "lead_ids")}},
+           "sampling": {"temperature": cfg.temperature, "top_p": cfg.top_p, "top_k": cfg.top_k, "min_p": cfg.min_p}}
+    rec["task"] = task_of(item)
+    if claim and rec["task"] == "clock":
+        rec["outcome"] = outcome(answer, item["gold"], claim)
+        rec["final_time"] = final_time(answer, claim)
+    elif rec["task"] == "yesno":
+        rec["semantic_judgment_status"] = "pending"
+    return rec
+
+
 # ---------------------------------------------------------------- 流程
 def setup(src_cq: str, dst: str) -> int:
     """从原 ClockQA 目录复制 items.jsonl 和图像（图像改指向 dst/images，按 sha256 核对）。"""
@@ -537,7 +875,7 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
         return 0
     eng = _engine(cfg)
     info = None
-    if "mmsy" in arms:
+    if "mmsy" in arms or any(a in A1_ARMS for a in arms):
         info = install(eng.backend.model)
         n_sl = sum(v["sliding"] for v in info.values())
         print(f"  语言模型注意力层 {len(info)} 层（滑动窗口 {n_sl}，全局 {len(info) - n_sl}）", file=sys.stderr)
@@ -547,12 +885,15 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
     for n, (a, s, iid, c) in enumerate(todo):
         try:
             nt = None
-            if a == "itsm":
+            if a == "itsm" or a in A1_ARMS:
                 p = os.path.join(cq, "neutralized", f"{iid}__{c}.json")
                 if not os.path.exists(p):
                     raise Model2CheckFailed(f"缺少中性提问 {p}（先跑 --phase neutralize）")
                 nt = json.load(open(p, encoding="utf-8"))["neutral"]
-            r = generate2(eng.backend, cfg, items[iid], c, a, s, nt, info, sync_check=(a == "itsm" and not synced))
+            if a in A1_ARMS:
+                r = generate_a1(eng.backend, cfg, items[iid], c, a, s, nt, info, root)
+            else:
+                r = generate2(eng.backend, cfg, items[iid], c, a, s, nt, info, sync_check=(a == "itsm" and not synced))
             if a == "itsm":
                 synced = True
             from .compare import run_name
@@ -563,6 +904,13 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
                 extra = f" MM-SY 图像注意力 {r['controller']['image_mass_before']:.3f}→{r['controller']['image_mass_after']:.3f}"
             if r.get("neutral_sync"):
                 extra += f" 中性分支同步 {r['neutral_sync']}"
+            if r.get("a1"):
+                ref = r["a1"]["reference"]
+                extra = f" 参照（{ref['source']}）{ref['rows_think']}+{ref['rows_answer']} 行" + \
+                        (f"，先读 {r['a1']['lead_tokens']} token" if r["a1"]["source"] == "lead" else "")
+                if r.get("controller"):
+                    th = r["controller"]["think"]
+                    extra += f"，思考阶段区域比例 {th['region_before']:.3f}→{th['region_after']:.3f}"
             first.append(r["thinking_empty"])
             print(f"  {n + 1}/{len(todo)} {a} s{s} {iid}__{c} 图像 {r['n_img']} token，输出 {r['n_out']} token {r['seconds']}s "
                   f"思考为空={r['thinking_empty']} 结果={r.get('outcome', '—')}{extra}", file=sys.stderr)

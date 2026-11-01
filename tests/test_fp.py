@@ -1726,3 +1726,41 @@ def test_reading_focus(tmp_path):
     assert "hands" not in res["scopes"]["全部题"]
     rep = open(proot / "reading_focus_report.md").read()
     assert "用户说错时未定、不计入：PV-004" in rep and "真实指针区域" not in rep
+
+
+def test_a1v2_pure(tmp_path):
+    from symexp.fp import model2 as m2
+    from symexp.fp import compare as cmp
+    # 先读何时停：满 256 个 token 后遇到空行停；思考结束 / 生成结束立即停；最多 512
+    assert not m2.lead_should_stop(100, "a\n\n", 5, 9, {7})
+    assert m2.lead_should_stop(300, "a\n\nb", 5, 9, {7})
+    assert not m2.lead_should_stop(300, "a b", 5, 9, {7})
+    assert m2.lead_should_stop(10, "x", 9, 9, {7}) and m2.lead_should_stop(10, "x", 7, 9, {7})
+    assert m2.lead_should_stop(512, "x", 5, 9, {7})
+    # 参照：思考阶段的看图累加 → 96 个看图头、每头 E = 前 20%；回答阶段没有时用思考阶段的
+    rng = np.random.default_rng(0)
+    L, H, n = 4, 24, 30
+    sums = np.zeros((2, L, H, n))
+    sums[0] = rng.random((L, H, n)) + 0.01
+    ref, chk = m2.ref_from_sums("CQ-000", sums, [5, 11, 17, 23], answer_from_think=True)
+    assert chk["ok"] and ref["heads"].sum() == 96 and np.allclose(ref["r"][0], ref["r"][1])
+    assert ref["layer_ids"].tolist() == [5, 11, 17, 23] and (ref["E_mask"].sum(-1) == 6).all()
+    # 记录层：只取没有滑动窗口的层
+    assert m2.record_layers2({3: {"sliding": False}, 4: {"sliding": True}, 9: {"sliding": False}}) == [3, 9]
+    # 新方法都能被判读导出认出来
+    for a in m2.A1_ARMS:
+        assert a in m2.ARMS2
+        os.makedirs(tmp_path / a / "records")
+    os.makedirs(tmp_path / "refs_read")
+    names = [x[1] for x in cmp._run_dirs(str(tmp_path))]
+    assert sorted(names) == sorted(m2.A1_ARMS)
+
+
+def test_a1v2_extend_inputs():
+    torch = pytest.importorskip("torch")
+    from symexp.fp import model2 as m2
+    inp = {"input_ids": torch.tensor([[1, 2, 3]]), "attention_mask": torch.ones(1, 3, dtype=torch.long),
+           "mm_token_type_ids": torch.tensor([[0, 1, 0]]), "pixel_values": torch.zeros(4, 8)}
+    out = m2.extend_inputs(inp, [7, 8])
+    assert out["input_ids"].tolist() == [[1, 2, 3, 7, 8]] and out["attention_mask"].tolist() == [[1, 1, 1, 1, 1]]
+    assert out["mm_token_type_ids"].tolist() == [[0, 1, 0, 0, 0]] and out["pixel_values"].shape == (4, 8)

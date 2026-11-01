@@ -787,7 +787,9 @@ def _run_dirs(root: str) -> List[tuple]:
         return out
     for d in sorted(os.listdir(root)):
         m = re.fullmatch(r"([a-z0-9]+?)(?:_s(\d+))?", d)
-        if m and m.group(1) in ARMS and m.group(1) != "loop" and os.path.isdir(os.path.join(root, d, "records")):
+        from .model2 import ARMS2
+        if m and (m.group(1) in ARMS or m.group(1) in ARMS2) and m.group(1) != "loop" \
+                and os.path.isdir(os.path.join(root, d, "records")):
             out.append((d, m.group(1), int(m.group(2) or 42)))
     return out
 
@@ -984,10 +986,10 @@ def run_summary(cq: str, root: str, out_path: str, arms: Optional[List[str]] = N
                     "tokens_median": float(np.median([r["n_out"] for r in recs])),
                     "seconds_per_token_median": float(np.median([r["seconds"] / max(r["n_out"], 1) for r in recs])),
                     "judge_seconds_total": float(sum((r.get("anchor2") or {}).get("judge_seconds", 0) for r in recs))}
-        if ARMS[arm].get("window"):
+        if ARMS.get(arm, {}).get("window"):
             st = [r["a1_window"]["steps_in"] for r in recs if r.get("a1_window")]
             cost[rn]["a1_steps_in_median"] = float(np.median(st)) if st else None
-        if ARMS[arm]["a2"]:
+        if ARMS.get(arm, {}).get("a2"):
             trig[rn] = {}
             for c in CONDS:
                 rc = [r for r in recs if r["condition"] == c]
