@@ -82,7 +82,8 @@ def _sha(path: str) -> str:
 
 def _sources(cq: str, root: str) -> List[dict]:
     out = []
-    for arm, d in (("base", os.path.join(cq, "obs", "records")), ("itsm", os.path.join(root, "itsm", "records"))):
+    for arm, d in (("base", os.path.join(cq, "obs", "records")), ("itsm", os.path.join(root, "itsm", "records")),
+                   ("s2va", os.path.join(root, "s2va", "records"))):
         if not os.path.isdir(d):
             continue
         for f in sorted(os.listdir(d)):
@@ -96,17 +97,20 @@ def key_of(relpath: str, sha: str) -> str:
     return "pv_" + hashlib.sha256((relpath + sha).encode()).hexdigest()[:24]
 
 
-def run_export(cq: str, root: str, out: Optional[str] = None) -> dict:
-    """导出判读请求。目录已存在就拒绝（一次判读一个固定快照）。"""
+def run_export(cq: str, root: str, out: Optional[str] = None, arms: Optional[List[str]] = None) -> dict:
+    """导出判读请求。目录已存在就拒绝（一次判读一个固定快照）。arms：只导出这些方法（例如之后补跑的 s2va）。"""
     from .conflict import _items
     items = _items(cq)
     out = out or os.path.join(root, "yesno_judge")
     if os.path.exists(out):
         raise SystemExit(f"{out} 已存在，不覆盖；判读快照只导出一次")
+    srcs = [s for s in _sources(cq, root) if not arms or s["arm"] in arms]
+    if not srcs:
+        raise SystemExit(f"没有可导出的记录（方法 {arms or '全部'}）")
     for sub in ("requests", "traces", "labels"):
         os.makedirs(os.path.join(out, sub))
     keymap, queue = {}, []
-    for s in _sources(cq, root):
+    for s in srcs:
         rec = json.load(open(s["path"], encoding="utf-8"))
         it = items[rec["id"]]
         if it["gold"] not in ("yes", "no"):
@@ -171,7 +175,19 @@ def status_of(answer: str, gold: str) -> str:
     return "未定"
 
 
-def run_summary(cq: str, root: str, out: Optional[str] = None) -> dict:
+def _extra_rows(path: str) -> List[dict]:
+    """之前另一批判读的 judgments.json（只用来做同题配对，不重新校验标签）。两种格式：status 字段，或 answer_matches_gold。"""
+    rows = []
+    for r in json.load(open(path, encoding="utf-8")):
+        st = r.get("status")
+        if st is None:
+            st = {True: "对", False: "错", None: "未定"}[r.get("answer_matches_gold")]
+        rows.append({"id": r["id"], "arm": r["arm"], "condition": r["condition"], "status": st, "extra_source": path})
+    return rows
+
+
+def run_summary(cq: str, root: str, out: Optional[str] = None, extra: Optional[List[str]] = None) -> dict:
+    """extra：之前那批判读的 judgments.json；只用于与这批做同题配对（例如原模型 vs 补跑的 S2VA）。"""
     from .conflict import _items
     items = _items(cq)
     out = out or os.path.join(root, "yesno_judge")
@@ -201,10 +217,13 @@ def run_summary(cq: str, root: str, out: Optional[str] = None) -> dict:
         g[r["status"]] += 1
         g["联合正确" if r["joint_correct"] is True else "联合错误" if r["joint_correct"] is False else "联合未解"] += 1
         g["答案:" + r["judgment"]["semantic_answer"]] += 1
-    comps = [_paired(rows, ("base", "neutral"), ("base", "belief")),
-             _paired(rows, ("base", "neutral"), ("base", "belief_right")),
-             _paired(rows, ("base", "belief"), ("itsm", "belief")),
-             _paired(rows, ("base", "belief_right"), ("itsm", "belief_right"))]
+    here = {(r["arm"], r["condition"]) for r in rows}
+    allr = rows + [r for p in (extra or []) for r in _extra_rows(p) if (r["arm"], r["condition"]) not in here]
+    have = {(r["arm"], r["condition"]) for r in allr}
+    want = [(("base", "neutral"), ("base", "belief")), (("base", "neutral"), ("base", "belief_right"))]
+    for arm in ("itsm", "s2va"):
+        want += [(("base", "belief"), (arm, "belief")), (("base", "belief_right"), (arm, "belief_right"))]
+    comps = [_paired(allr, l, r) for l, r in want if l in have and r in have]
     res = {"requests": len(keymap), "labeled": len(rows), "missing": len(missing),
            "groups": {k: dict(v) for k, v in sorted(groups.items())}, "comparisons": comps}
     json.dump(rows, open(os.path.join(out, "judgments.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=2)

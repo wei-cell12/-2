@@ -199,13 +199,16 @@ def main():
     fsr.add_argument("--out", default=None, help="analyze：报告 .md（默认 root/sources_report.md）")
     fsr.add_argument("--yn-judgments", default=None, help="reading-groups / reading-focus（PathVQA）：是/否判读的 judgments.json")
     fsr.add_argument("--label", default=None, help="reading-focus：报告里写的模型与数据集，如 \"Qwen3.8-27B · ClockQA\"")
-    fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM")
+    fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM、S2VA")
     fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run", "yn-export", "yn-summary"])
     fm2.add_argument("--src-cq", default=None, help="setup：原 ClockQA 目录（读 items.jsonl 和图像）")
     fm2.add_argument("--cq", required=True, help="这个模型的 ClockQA 目录（setup 建；原模型种子 42 的记录写在 obs/records）")
     fm2.add_argument("--root", default=None, help="run：其他方法、其他种子的结果目录")
     fm2.add_argument("--arms", nargs="*", default=["base", "mmsy", "itsm"])
     fm2.add_argument("--seeds", nargs="*", type=int, default=[42])
+    fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
+    fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
+    fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
     for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
@@ -382,7 +385,10 @@ def main():
                 from symexp.fp import yesno as fp_yesno
                 if not a.root:
                     raise SystemExit(f"--phase {a.phase} 需要 --root")
-                (fp_yesno.run_export if a.phase == "yn-export" else fp_yesno.run_summary)(a.cq, a.root)
+                if a.phase == "yn-export":
+                    fp_yesno.run_export(a.cq, a.root, a.yn_out, a.yn_arms)
+                else:
+                    fp_yesno.run_summary(a.cq, a.root, a.yn_out, a.yn_extra)
             else:
                 if not a.root:
                     raise SystemExit("--phase run 需要 --root")
