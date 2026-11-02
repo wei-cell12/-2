@@ -92,6 +92,7 @@ def _inputs(backend, user_text: str, system: str, image_path: Optional[str]):
 
 def _call(backend, cfg, user_text: str, system: str, image_path: Optional[str], seed: int) -> dict:
     from .generate import make_budget
+    from ..attn import image_token_id
     from .model2 import split_output
     torch, tf, model, tok = backend.torch, backend.transformers, backend.model, backend.tokenizer
     prompt, inputs = _inputs(backend, user_text, system, image_path)
@@ -100,6 +101,7 @@ def _call(backend, cfg, user_text: str, system: str, image_path: Optional[str], 
     if "pixel_values" in batch:
         batch["pixel_values"] = batch["pixel_values"].to(model.dtype)
     n_in = int(inputs["input_ids"].shape[1])
+    n_img = inputs["input_ids"][0].tolist().count(image_token_id(backend)) if image_path else 0
     gc = model.generation_config
     eos = gc.eos_token_id if isinstance(gc.eos_token_id, list) else [gc.eos_token_id]
     tb, ab = cfg.think_budget, cfg.answer_budget
@@ -121,7 +123,7 @@ def _call(backend, cfg, user_text: str, system: str, image_path: Optional[str], 
     thinking, answer, close = split_output(dec, output, backend.close_id, cfg.think_open)
     return {"prompt_text": prompt, "input_ids": inputs["input_ids"][0].tolist(), "output_ids": output,
             "raw_output": tok.decode(output, skip_special_tokens=False), "thinking": thinking, "answer": answer,
-            "close_position": close, "n_in": n_in, "n_out": len(output), "seconds": round(time.time() - t0, 2),
+            "close_position": close, "n_in": n_in, "n_img": n_img, "n_out": len(output), "seconds": round(time.time() - t0, 2),
             "budget": budget.metadata()}
 
 
@@ -146,12 +148,12 @@ def generate_s2va(backend, cfg, item: dict, cond: str, seed: int, neutral_text: 
            "prompt_text": a["prompt_text"], "input_ids": a["input_ids"], "output_ids": a["output_ids"],
            "raw_output": a["raw_output"], "thinking": a["thinking"], "answer": a["answer"],
            "close_position": a["close_position"], "thinking_empty": not a["thinking"].strip(),
-           "n_in": a["n_in"], "n_out": w["n_out"] + a["n_out"], "seconds": round(w["seconds"] + a["seconds"], 2),
+           "n_in": a["n_in"], "n_img": w["n_img"], "n_out": w["n_out"] + a["n_out"], "seconds": round(w["seconds"] + a["seconds"], 2),
            "budget": a["budget"],
-           "s2va": {"witness": {k: w[k] for k in ("prompt_text", "thinking", "answer", "n_out", "seconds", "budget",
+           "s2va": {"witness": {k: w[k] for k in ("prompt_text", "thinking", "answer", "n_img", "n_out", "seconds", "budget",
                                                     "close_position")},
                     "witness_parsed": parsed, "arbiter_message": msg,
-                    "arbiter": {"n_out": a["n_out"], "seconds": a["seconds"]},
+                    "arbiter": {"n_img": a["n_img"], "n_out": a["n_out"], "seconds": a["seconds"]},
                     "witness_thinking_empty": not w["thinking"].strip()},
            "sampling": {"temperature": cfg.temperature, "top_p": cfg.top_p, "top_k": cfg.top_k, "min_p": cfg.min_p}}
     rec["task"] = task_of(item)
