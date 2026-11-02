@@ -129,6 +129,7 @@ class DLARecorder:
         self.masks = torch.stack([torch.as_tensor(labels == k, device=dev) for k in range(len(GROUPS))]).float()
         self.pending: Dict[int, Dict[int, object]] = {}
         self.hidden: Dict[int, object] = {}
+        self.gates: Dict[int, object] = {}
         self.result: Dict[int, Dict[int, np.ndarray]] = {t: {} for t in self.targets}   # t -> {layer: [4] logit 差（未除最终 rms）}
         self.checks: List[float] = []
         self.final_h = {}
@@ -162,6 +163,18 @@ class DLARecorder:
             self.hidden[id(module)] = h[0, self.targets].detach()
         return None
 
+    def gate_post(self, attn_module):
+        def hook(module, args, output):
+            if output.ndim == 3 and output.shape[1] > max(self.targets):
+                selected = output[0, self.targets]
+                gate = self.torch.chunk(
+                    selected.reshape(len(self.targets), -1, attn_module.head_dim * 2),
+                    2, dim=-1)[1].reshape(len(self.targets), -1)
+                # Match the original dtype of sigmoid before promotion for DLA.
+                self.gates[id(attn_module)] = self.torch.sigmoid(gate).detach()
+            return None
+        return hook
+
     def attn_post(self, module, args, kwargs, output):
         """注意力模块算完：各来源 → o_proj 之后（Qwen 先乘输出门）；Gemma 的注意力后 RMSNorm 在 norm_post 里处理。"""
         t = self.torch
@@ -177,15 +190,16 @@ class DLARecorder:
         for j, q in enumerate(self.targets):
             a = pend[q].reshape(len(GROUPS), -1)                       # [4, H*D]
             if info["gated"]:
-                hq = module.q_proj(self.hidden[id(module)][j][None].to(module.q_proj.weight.dtype)).float()
-                gate = t.chunk(hq.view(-1, module.head_dim * 2), 2, dim=-1)[1].reshape(-1)
-                a = a * t.sigmoid(gate)[None]
+                # Use the gate from the actual batched projection. Re-running
+                # a BF16 vector GEMM can change it, especially near cancellation.
+                a = a * self.gates[id(module)][j].float()[None]
             z = a @ W.T                                                # [4, d_model]
             info.setdefault("z", {})[q] = z
             if not info["postnorm"]:
                 self._check(z.sum(0), y[0, q].float(), layer, q)
                 self._project(layer, q, z)
         self.hidden.pop(id(module), None)
+        self.gates.pop(id(module), None)
         return None
 
     def norm_post(self, layer: int):
@@ -207,7 +221,9 @@ class DLARecorder:
 
     def final_pre(self, module, args, kwargs):
         h = args[0] if args else kwargs.get("hidden_states")
-        if h is not None and h.shape[1] > max(self.targets):
+        # The weight-factor probe is [batch, hidden], not a sequence.
+        # Ignore it so this pre-hook cannot recursively call itself.
+        if h is not None and h.ndim == 3 and h.shape[1] > max(self.targets):
             self.final_h = {q: h[0, q].detach().float() for q in self.targets}
             self.final_factor = module(self.torch.ones(1, h.shape[-1], device=h.device, dtype=h.dtype)).float()[0]
             self.final_eps = float(getattr(module, "eps", getattr(module, "variance_epsilon", 1e-6)))
@@ -338,6 +354,8 @@ def attrib_one(backend, cfg, item: dict, cond: str, rec: dict, skip: int) -> dic
     for l, d in dec_parts.items():
         hooks.append(d["attn"].register_forward_pre_hook(rr.attn_pre, with_kwargs=True))
         hooks.append(d["attn"].register_forward_hook(rr.attn_post, with_kwargs=True))
+        if d["gated"]:
+            hooks.append(d["attn"].q_proj.register_forward_hook(rr.gate_post(d["attn"])))
         if d["postnorm"]:
             hooks.append(d["layer"].post_attention_layernorm.register_forward_hook(rr.norm_post(l)))
     hooks.append(final.register_forward_pre_hook(rr.final_pre, with_kwargs=True))
@@ -349,7 +367,8 @@ def attrib_one(backend, cfg, item: dict, cond: str, rec: dict, skip: int) -> dic
     inner = getattr(model, "model", None)
     if inner is not None and hasattr(inner, "rope_deltas"):
         inner.rope_deltas = None
-    idx = torch.tensor(targets, device=model.device)
+    # Python indices stay device-independent when the decoder spans GPUs.
+    idx = targets
     try:
         with torch.inference_mode(), attn.recording(rr):
             try:
