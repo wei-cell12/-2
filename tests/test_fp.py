@@ -1976,3 +1976,47 @@ def test_stages_preserves_unparseable_claim_without_dropping_records(tmp_path):
     assert all(row["first"] == "对" and row["final"] == "对" for row in saved["rows"])
     assert "未解1" in (out / "report.md").read_text()
     assert json.loads((cq / "items.jsonl").read_text())["claim"] == "12:60:00"
+
+
+def test_preread_pure(tmp_path):
+    from symexp.fp import preread as pr
+    from symexp.fp import compare as cmp
+    from symexp.fp import model2
+    eos = {2}
+    # 不到 64 个不停；满 64 后遇到句末停；到 128 一定停；写出思考结束 / 结束符立刻停
+    assert not pr.pre_should_stop(30, "hand. The", 5, 9, eos)
+    assert pr.pre_should_stop(64, "hand. The", 5, 9, eos)
+    assert pr.pre_should_stop(70, "line\n", 5, 9, eos)
+    assert not pr.pre_should_stop(70, "at 3.5", 5, 9, eos)
+    assert pr.pre_should_stop(128, "the minute", 5, 9, eos)
+    assert pr.pre_should_stop(10, "x", 9, 9, eos) and pr.pre_should_stop(10, "x", 2, 9, eos)
+    # 多写出的下一句开头 / 半句话退回到最后一个句末
+    assert pr.trim_lead("The hour hand is near 3. The minute hand is at 12. The") == \
+        "The hour hand is near 3. The minute hand is at 12."
+    assert pr.trim_lead("Hour hand near 3.") == "Hour hand near 3."
+    assert pr.trim_lead("no sentence end here") == "no sentence end here"
+    assert pr.trim_lead("Short. a much longer unfinished tail that goes on and on") == \
+        "Short. a much longer unfinished tail that goes on and on"
+    # 去掉模型自己写的思考开头
+    assert pr.strip_open("thought\nThe clock", "<|channel>thought") == "The clock"
+    assert pr.strip_open("The clock", "<think>") == "The clock"
+    # 预置文字：Qwen 提示里已有 <think>；Gemma 由预置文字补上思考开头
+    q = pr.build_prefix(" Hour hand near 3. ", "<think>", True)
+    assert q == pr.PRE_HEAD + "Hour hand near 3." + pr.PRE_TAIL
+    g = pr.build_prefix("Hour hand near 3.", "<|channel>thought", False)
+    assert g.startswith("<|channel>thought\n" + pr.PRE_HEAD) and "Preliminary reading" in g
+    assert "preread" in model2.ARMS2
+    os.makedirs(tmp_path / "preread" / "records")
+    assert [x[1] for x in cmp._run_dirs(str(tmp_path))] == ["preread"]
+
+
+def test_preread_extend_inputs():
+    torch = pytest.importorskip("torch")
+    from symexp.fp.preread import extend_inputs
+    inp = {"input_ids": torch.tensor([[1, 2, 3]]), "attention_mask": torch.tensor([[1, 1, 1]]),
+           "mm_token_type_ids": torch.tensor([[0, 1, 0]]), "pixel_values": torch.zeros(4, 5)}
+    out = extend_inputs(inp, [7, 8])
+    assert out["input_ids"].tolist() == [[1, 2, 3, 7, 8]]
+    assert out["attention_mask"].tolist() == [[1, 1, 1, 1, 1]]
+    assert out["mm_token_type_ids"].tolist() == [[0, 1, 0, 0, 0]]
+    assert out["pixel_values"].shape == (4, 5)

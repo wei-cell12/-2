@@ -83,7 +83,8 @@ def _sha(path: str) -> str:
 def _sources(cq: str, root: str) -> List[dict]:
     out = []
     for arm, d in (("base", os.path.join(cq, "obs", "records")), ("itsm", os.path.join(root, "itsm", "records")),
-                   ("s2va", os.path.join(root, "s2va", "records"))):
+                   ("s2va", os.path.join(root, "s2va", "records")),
+                   ("preread", os.path.join(root, "preread", "records"))):
         if not os.path.isdir(d):
             continue
         for f in sorted(os.listdir(d)):
@@ -221,7 +222,7 @@ def run_summary(cq: str, root: str, out: Optional[str] = None, extra: Optional[L
     allr = rows + [r for p in (extra or []) for r in _extra_rows(p) if (r["arm"], r["condition"]) not in here]
     have = {(r["arm"], r["condition"]) for r in allr}
     want = [(("base", "neutral"), ("base", "belief")), (("base", "neutral"), ("base", "belief_right"))]
-    for arm in ("itsm", "s2va"):
+    for arm in ("itsm", "s2va", "preread"):
         want += [(("base", "belief"), (arm, "belief")), (("base", "belief_right"), (arm, "belief_right"))]
     comps = [_paired(allr, l, r) for l, r in want if l in have and r in have]
     res = {"requests": len(keymap), "labeled": len(rows), "missing": len(missing),

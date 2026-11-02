@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""其他模型（Gemma 4 31B-it、Qwen3.6-35B-A3B 等）上的 ClockQA baseline：原模型三种条件、MM-SY、ITSM、S2VA（见 s2va.py）。
+"""其他模型（Gemma 4 31B-it、Qwen3.6-35B-A3B 等）上的 ClockQA baseline：原模型三种条件、MM-SY、ITSM、S2VA（见 s2va.py）、先读后听 preread（见 preread.py）。
 （只跑 base / itsm 时不安装注意力包装，所以对 MoE、线性注意力混合的模型也适用。）
 
 与 Qwen3.8 那套代码（compare.py）的区别：
@@ -33,7 +33,7 @@ import numpy as np
 MMSY_LAMBDA = 0.9
 CONDS_BASE = ["neutral", "belief", "belief_right"]
 CONDS_ARM = ["belief", "belief_right"]
-ARMS2 = ["base", "mmsy", "itsm", "s2va"]
+ARMS2 = ["base", "mmsy", "itsm", "s2va", "preread"]
 SYNC_STEPS = 32
 FIRST_CHECK = 5                  # 每个进程前 5 条只要有一条思考为空就停下
 SYNC_MIN_AGREE = 0.9
@@ -547,7 +547,7 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
     for n, (a, s, iid, c) in enumerate(todo):
         try:
             nt = None
-            if a in ("itsm", "s2va"):
+            if a in ("itsm", "s2va", "preread"):
                 p = os.path.join(cq, "neutralized", f"{iid}__{c}.json")
                 if not os.path.exists(p):
                     raise Model2CheckFailed(f"缺少中性提问 {p}（先跑 --phase neutralize）")
@@ -555,6 +555,9 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
             if a == "s2va":
                 from .s2va import generate_s2va
                 r = generate_s2va(eng.backend, cfg, items[iid], c, s, nt)
+            elif a == "preread":
+                from .preread import generate_preread
+                r = generate_preread(eng.backend, cfg, items[iid], c, s, nt)
             else:
                 r = generate2(eng.backend, cfg, items[iid], c, a, s, nt, info, sync_check=(a == "itsm" and not synced))
             if a == "itsm":
@@ -571,6 +574,10 @@ def run_arms(cfg, cq: str, root: str, arms: List[str], seeds: List[int], shard: 
                 wp = r["s2va"]["witness_parsed"]
                 extra = (f" 证人 {r['s2va']['witness']['n_out']} token，报告解析={wp['parse']}，置信度={wp['confidence']}；"
                          f"仲裁者 {r['s2va']['arbiter']['n_out']} token")
+            if r.get("preread"):
+                pr = r["preread"]
+                extra = (f" 初步读图 {pr['lead_tokens']} token（写满上限={pr['lead_hit_max']}，"
+                         f"自己结束思考={pr['lead_ended_thinking']}），预置 {pr['prefix_tokens']} token")
             first.append(r["thinking_empty"] or bool((r.get("s2va") or {}).get("witness_thinking_empty")))
             print(f"  {n + 1}/{len(todo)} {a} s{s} {iid}__{c} 图像 {r['n_img']} token，输出 {r['n_out']} token {r['seconds']}s "
                   f"思考为空={r['thinking_empty']} 结果={r.get('outcome', '—')}{extra}", file=sys.stderr)
