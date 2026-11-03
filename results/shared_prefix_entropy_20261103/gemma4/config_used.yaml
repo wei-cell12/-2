@@ -1,0 +1,29 @@
+backend: hf
+model_path: /mnt/sdg/ljh/models/gemma-4-31B-it
+model_class: Gemma4ForConditionalGeneration
+torch_dtype: bfloat16
+device_map: auto
+attn_implementation: sdpa
+workers: 1
+image_max_soft_tokens: 560
+processor_kwargs: {}
+thinking_template_kwargs:
+  enable_thinking: true
+nothinking_template_kwargs:
+  enable_thinking: false
+think_open: <|channel>thought
+think_close: <channel|>
+think_prefill: false
+hf_single_pass: true
+end_markers:
+- <turn|>
+- <eos>
+use_system_prompt: false
+temperature: 1.0
+top_p: 0.95
+top_k: 64
+min_p: 0.0
+repetition_penalty: 1.0
+think_budget: 4096
+answer_budget: 512
+attn_chunk: 256

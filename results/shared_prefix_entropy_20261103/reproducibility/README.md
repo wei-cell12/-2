@@ -1,0 +1,22 @@
+# 复核与复现
+
+此目录保留实际使用的前向/统计/语义校验代码、原判读与更正、盲化请求、解盲映射、配置来源SHA及源数据清单。全量逐token数值在顶层qwen38/records与gemma4/records；完整模型思考/回答在各analysis/source_texts.json。原图与权重不随本次上传。
+
+CPU复核（Python3与numpy）：
+
+```bash
+python3 bootstrap.py
+python3 work/entropy_valley_behavior_20261103/validate.py
+python3 work/entropy_valley_behavior_20261103/check_analysis_helpers.py
+python3 work/entropy_valley_behavior_20261103/inventory.py
+python3 work/entropy_valley_behavior_20261103/attention_test.py
+python3 work/entropy_valley_behavior_20261103/online_attention.py
+python3 work/entropy_valley_behavior_20261103/secondary_attention.py
+python3 work/entropy_valley_behavior_20261103/finish.py
+```
+
+bootstrap只解压带SHA的JSON并建立到本包结果的本地软链接，不下载、不启动模型；后续统计脚本会在本地重新写分析输出。请在副本中运行以保留下载文件的原始SHA。旧运行器含当时服务器路径，仅为留档，复核本包不需要执行launch/resume/prepare_blind或重新判读。项目Luna标签是语义阅读结果，不能用程序关键词替代。
+
+Gemma配置内容见顶层gemma4/config_used.yaml。Qwen本机未保留完全相同的配置文本；manifest.json已保存当时配置绝对路径与SHA256=3c417bba9fb6160f64101909530700e9458c85110916259eb30603a26f298eaf。本次上传时原59共享连接未连接，未为了补配置而改变模型设置或要求重登录；这不影响已有CSV和CPU统计复核。历史源Gemma生成环境transformers5.20.2，熵回放在50使用5.14.1，版本差异在主说明中保留。
+
+private_keymap是审核结束后的题目/条件解盲映射，不含凭据。盲审期间Luna未读取这些映射。审核者为同一个gpt-6-luna(max)，历轮不能当作独立多裁判。原标注和修正分开保存。

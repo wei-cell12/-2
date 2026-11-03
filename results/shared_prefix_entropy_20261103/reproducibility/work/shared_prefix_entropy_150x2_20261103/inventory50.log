@@ -1,0 +1,26 @@
+HOST a6000-1
+GPU 0, NVIDIA RTX A6000, 49140, 4, 0
+1, NVIDIA RTX A6000, 49140, 4, 0
+2, NVIDIA RTX A6000, 49140, 4, 0
+3, NVIDIA RTX A6000, 49140, 4, 0
+4, NVIDIA RTX A6000, 49140, 4, 0
+5, NVIDIA RTX A6000, 49140, 4, 0
+6, NVIDIA RTX A6000, 49140, 4, 0
+ 
+PROCESSES 
+ROOT /mnt/sdg/linxin/s2va-20261101/qwen_cq
+FILE items.jsonl 96528
+RECORDS obs/records 186 ['prompt_text', 'input_ids', 'output_ids', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'controller', 'id', 'condition', 'mode', 'gold', 'claim', 'message', 'image', 'image_sha256', 'npz', 'npz_sha256', 'saved'] {'id': 'CQ-000', 'condition': 'belief', 'n_in': 209, 'n_out': 502, 'model': None, 'image': '/mnt/sdi/linxin/proofwriter_runs/clockqa-scaleup-20261025/images/CQ-000.jpg', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 350}}
+ROOT /mnt/sdg/linxin/s2va-20261101/qwen_pv
+FILE items.jsonl 108776
+RECORDS obs/records 300 ['prompt_text', 'input_ids', 'output_ids', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'arm', 'id', 'condition', 'gold', 'claim', 'message', 'image', 'image_sha256', 'thinking_empty', 'close_position', 'controller', 'itsm', 'neutral_text', 'model', 'image_grid', 'sampling', 'task', 'semantic_judgment_status', 'run'] {'id': 'PV-000', 'condition': 'belief', 'n_in': 370, 'n_out': 844, 'model': '/mnt/sdb/linxin/ModelList/Qwen3.8-27B', 'image': '/mnt/sdb/linxin/qwen38-pv-20261031/images/PV-000.png', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 562}}
+ROOT /mnt/sdg/linxin/s2va-20261101/gemma_cq
+FILE items.jsonl 96590
+RECORDS obs/records 186 ['prompt_text', 'input_ids', 'output_ids', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'arm', 'id', 'condition', 'gold', 'claim', 'message', 'image', 'image_sha256', 'thinking_empty', 'close_position', 'controller', 'itsm', 'neutral_text', 'model', 'sampling', 'outcome', 'final_time', 'run'] {'id': 'CQ-000', 'condition': 'belief', 'n_in': 575, 'n_out': 362, 'model': '/mnt/sdb/ljh/models/gemma-4-31B-it', 'image': '/mnt/sdb/linxin/gemma4-cq-20261029/images/CQ-000.jpg', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 307}}
+ROOT /mnt/sdg/linxin/s2va-20261101/gemma_pv
+FILE items.jsonl 116976
+RECORDS obs/records 300 ['prompt_text', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'arm', 'id', 'condition', 'gold', 'claim', 'message', 'image', 'image_sha256', 'thinking_empty', 'close_position', 'controller', 'itsm', 'neutral_text', 'model', 'sampling', 'dataset', 'semantic_judgment_status', 'legacy_clock_outcome_ignore_for_pathvqa', 'legacy_clock_final_time_ignore_for_pathvqa', 'run', 'original_record_sha256', 'original_record_path'] {'id': 'PV-000', 'condition': 'belief', 'n_in': 573, 'n_out': 765, 'model': '/mnt/sdb/ljh/models/gemma-4-31B-it', 'image': '/mnt/sdb/linxin/gemma4-pv-20261030/images/PV-000.png', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 619}}
+MODEL /mnt/sdb/linxin/ModelList/Qwen3.8-27B False
+MODEL /mnt/sdb/ljh/models/Qwen3.8-27B False
+MODEL /mnt/sdb/ljh/models/gemma-4-31B-it False
+MODEL /mnt/ssd/gy/models/Qwen3.8-27B True

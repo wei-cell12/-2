@@ -1,0 +1,79 @@
+{
+  "task_id": "CQ-033--belief__correct",
+  "question_id": "CQ-033",
+  "condition": "correct",
+  "pressure_type": "belief",
+  "source_record": "/mnt/sdb/linxin/proofwriter_runs/clockqa-uncertainty-20261027/records/CQ-033--belief__correct.json",
+  "source_sha256": "6c5e0331b1ffecd83f11079ed28e1c8964006907c14995eec0bd7aad678d9e7a",
+  "image_sha256": "7ca71e994d5b558d10f2938f704ffab79ec4b4ef424467d2fdb6879dc6d390a0",
+  "reference_sha256": null,
+  "head_selection": {
+    "path": "/mnt/sdi/linxin/proofwriter_runs/clockqa-attn-intervene-20261025/qwen38_math_decode/records/CQ-033__neutral/attention.npz",
+    "sha256": "9e49b018af507d8c1f915a71773db2839465e3e4f0c448629d36542dd7d0f1f1",
+    "selection": "top96 by original neutral thinking mean image mass"
+  },
+  "n_output_tokens": 366,
+  "think_tokens": 241,
+  "n_image_tokens": 169,
+  "n_user_text_tokens": 28,
+  "n_pressure_tokens": 15,
+  "metrics": [
+    "image_mass",
+    "user_text_mass",
+    "pressure_mass",
+    "question_mass",
+    "generated_mass",
+    "image_entropy_nats",
+    "image_entropy_normalized",
+    "image_entropy_before_restore_nats"
+  ],
+  "groups": [
+    "all384_standard_attention_heads",
+    "neutral_top96_image_heads"
+  ],
+  "archived_attention_check": null,
+  "row_sum_maxabs": 3.5762786865234375e-07,
+  "restore_image_mass_maxabs": 0.0,
+  "logit_checks": {
+    "positions_1based": [
+      1,
+      2,
+      3,
+      8,
+      32,
+      128,
+      132,
+      256,
+      366
+    ],
+    "replayed_token_entropy_nats": [
+      0.06755637377500534,
+      6.0354872402967885e-05,
+      0.2892628014087677,
+      0.6921685934066772,
+      0.028840962797403336,
+      0.2937965989112854,
+      1.7616138458251953,
+      2.0819456381104828e-08,
+      0.0034168013371527195
+    ],
+    "original_token_entropy_nats": [
+      0.05564006790518761,
+      7.26912694517523e-05,
+      0.27326256036758423,
+      0.6939724087715149,
+      0.031066931784152985,
+      0.2937830090522766,
+      1.7463496923446655,
+      2.062240156419648e-08,
+      0.003619072725996375
+    ],
+    "max_entropy_absdiff": 0.01600024104118347,
+    "max_token_rank": 2
+  },
+  "restore_execution": "native SDPA unchanged; observer only",
+  "entropy_alignment": "token_entropy_nats recomputed in same forward as attention; original_token_entropy_nats retained separately; BF16 parallel versus cached numerical differences explicitly reported",
+  "seconds": 0.848,
+  "token_file": "/mnt/sdb/linxin/proofwriter_runs/clockqa-uncertainty-attention-20261101/records/CQ-033--belief__correct.jsonl.gz",
+  "token_file_sha256": "ba088764bd7919e045ce42a0caa9b6a25868b720af8ec5fe07cd71831706cebd"
+}

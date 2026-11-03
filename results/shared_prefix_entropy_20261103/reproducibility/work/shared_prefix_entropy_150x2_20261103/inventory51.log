@@ -1,0 +1,105 @@
+HOST A6000-2
+GPU 0, NVIDIA RTX A6000, 49140, 37388, 0
+1, NVIDIA RTX A6000, 49140, 45370, 100
+2, NVIDIA RTX A6000, 49140, 45370, 100
+3, NVIDIA RTX A6000, 49140, 45370, 100
+4, NVIDIA RTX A6000, 49140, 734, 0
+5, NVIDIA RTX A6000, 49140, 45370, 100
+6, NVIDIA RTX A6000, 49140, 1, 0
+ 
+PROCESSES GPU-ca28a9f9-a1de-7f8c-5c0b-24aafdaf51dc, 492977, /mnt/sda/lcq/MintaiDialect/models/asr_service/.venv/bin/python, 1302 MiB
+GPU-ca28a9f9-a1de-7f8c-5c0b-24aafdaf51dc, 575734, /mnt/sda/lcq/MintaiDialect/models/asr_service/qwen/.venv/bin/python, 4860 MiB
+GPU-ca28a9f9-a1de-7f8c-5c0b-24aafdaf51dc, 587916, /mnt/sda/lcq/MintaiDialect/models/asr_service/qwen/.venv/bin/python, 4330 MiB
+GPU-ca28a9f9-a1de-7f8c-5c0b-24aafdaf51dc, 20859, VLLM::EngineCore, 7444 MiB
+GPU-ca28a9f9-a1de-7f8c-5c0b-24aafdaf51dc, 32100, VLLM::EngineCore, 7422 MiB
+GPU-ca28a9f9-a1de-7f8c-5c0b-24aafdaf51dc, 2413767, /mnt/sda/lcq/MintaiDialect/models/asr_service/qwen/.venv/bin/python, 4544 MiB
+GPU-ca28a9f9-a1de-7f8c-5c0b-24aafdaf51dc, 2419582, VLLM::EngineCore, 7442 MiB
+GPU-f703cdad-3b19-d6cd-0561-b0b7a9cf1566, 1093696, VLLM::EngineCore, 45360 MiB
+GPU-95176d12-7e7e-9f22-c793-225aac9bbe22, 1093714, VLLM::EngineCore, 45360 MiB
+GPU-fcb18ba6-dd7e-3b78-1df0-0f74bce4c175, 1093687, VLLM::EngineCore, 45360 MiB
+GPU-302022ab-f0f5-5c00-c20b-564df93366b6, 3683629, /mnt/sda/lcq/MintaiDialect/services/asr/mossformer2/.venv/bin/python, 724 MiB
+GPU-9f398faa-1147-1925-2b86-16fc7b0ad508, 1093705, VLLM::EngineCore, 45360 MiB
+
+ROOT /mnt/sdb/linxin/gemma4-cq-20261029
+FILE items.jsonl 96342
+RECORDS obs/records 186 ['prompt_text', 'input_ids', 'output_ids', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'arm', 'id', 'condition', 'gold', 'claim', 'message', 'image', 'image_sha256', 'thinking_empty', 'close_position', 'controller', 'itsm', 'neutral_text', 'model', 'sampling', 'outcome', 'final_time', 'run'] {'id': 'CQ-000', 'condition': 'belief', 'n_in': 575, 'n_out': 362, 'model': '/mnt/sdb/ljh/models/gemma-4-31B-it', 'image': '/mnt/sdb/linxin/gemma4-cq-20261029/images/CQ-000.jpg', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 307}}
+ROOT /mnt/sdb/linxin/gemma4-pv-20261030
+FILE items.jsonl 108476
+RECORDS obs/records 300 ['prompt_text', 'input_ids', 'output_ids', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'arm', 'id', 'condition', 'gold', 'claim', 'message', 'image', 'image_sha256', 'thinking_empty', 'close_position', 'controller', 'itsm', 'neutral_text', 'model', 'sampling', 'dataset', 'semantic_judgment_status', 'legacy_clock_outcome_ignore_for_pathvqa', 'legacy_clock_final_time_ignore_for_pathvqa', 'run'] {'id': 'PV-000', 'condition': 'belief', 'n_in': 573, 'n_out': 765, 'model': '/mnt/sdb/ljh/models/gemma-4-31B-it', 'image': '/mnt/sdb/linxin/gemma4-pv-20261030/images/PV-000.png', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 619}}
+ROOT /mnt/sdb/linxin/pendulum-20261102/expand4x50
+FILE items.jsonl 230858
+RECORDS gemma4/records 600 ['prompt_text', 'input_ids', 'output_ids', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'arm', 'id', 'condition', 'gold', 'claim', 'message', 'image', 'image_sha256', 'thinking_empty', 'close_position', 'controller', 'itsm', 'neutral_text', 'model', 'image_grid', 'sampling', 'task', 'dataset', 'domain', 'semantic_judgment_status', 'source_file', 'source_row'] {'id': 'PD-confusing_perspective-0000', 'condition': 'belief', 'n_in': 583, 'n_out': 365, 'model': '/mnt/sdb/ljh/models/gemma-4-31B-it', 'image': '/mnt/sdb/linxin/pendulum-20261102/images/confusing_perspective/VisDefAn_confusing_000000.jpg', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 360}}
+CONFIG /mnt/sdb/linxin/repo-gemma4/configs/gemma4_31b.yaml # Gemma 4 31B-it，Hugging Face transformers 后端（需要支持 Gemma 4 的新版 transformers）。
+backend: hf
+model_path: /mnt/sdb/ljh/models/gemma-4-31B-it
+model_class: Gemma4ForConditionalGeneration
+torch_dtype: bfloat16
+device_map: auto
+attn_implementation: sdpa
+workers: 1
+
+# 每张图的 token 数上限（Gemma 4 支持 70/140/280/560/1120；ClockQA 要看清指针，用 560）
+image_max_soft_tokens: 560
+processor_kwargs: {}
+
+# 思考：聊天模板参数 enable_thinking 会在系统提示开头放 <|think|>；思考写成 <|channel>thought … <channel|>，由模型自己写开头
+thinking_template_kwargs: {enable_thinking: true}
+nothinking_template_kwargs: {enable_thinking: false}
+think_open: "<|channel>thought"
+think_close: "<channel|>"
+think_prefill: false
+hf_single_pass: true
+end_markers: ["<turn|>", "<eos>"]
+use_system_prompt: false
+
+# 解码（Gemma 推荐设置；所有方法相同；种子用命令行）
+temperature: 1.0
+top_p: 0.95
+top_k: 64
+min_p: 0.0
+repetition_penalty: 1.0
+
+# 长度上限与 Qwen3.8 那边相同
+think_budget: 4096
+answer_budget: 512
+attn_chunk: 256
+
+CONFIG /mnt/sdb/linxin/pendulum-20261102/configs/gemma4.yaml # Gemma 4 31B-it，Hugging Face transformers 后端（需要支持 Gemma 4 的新版 transformers）。
+backend: hf
+model_path: /mnt/sdb/ljh/models/gemma-4-31B-it
+model_class: Gemma4ForConditionalGeneration
+torch_dtype: bfloat16
+device_map: auto
+attn_implementation: sdpa
+workers: 1
+
+# 每张图的 token 数上限（Gemma 4 支持 70/140/280/560/1120；ClockQA 要看清指针，用 560）
+image_max_soft_tokens: 560
+processor_kwargs: {}
+
+# 思考：聊天模板参数 enable_thinking 会在系统提示开头放 <|think|>；思考写成 <|channel>thought … <channel|>，由模型自己写开头
+thinking_template_kwargs: {enable_thinking: true}
+nothinking_template_kwargs: {enable_thinking: false}
+think_open: "<|channel>thought"
+think_close: "<channel|>"
+think_prefill: false
+hf_single_pass: true
+end_markers: ["<turn|>", "<eos>"]
+use_system_prompt: false
+
+# 解码（Gemma 推荐设置；所有方法相同；种子用命令行）
+temperature: 1.0
+top_p: 0.95
+top_k: 64
+min_p: 0.0
+repetition_penalty: 1.0
+
+# 长度上限与 Qwen3.8 那边相同
+think_budget: 4096
+answer_budget: 512
+attn_chunk: 256
+
+MODEL /mnt/sdb/linxin/ModelList/Qwen3.8-27B False
+MODEL /mnt/sdb/ljh/models/Qwen3.8-27B True
+MODEL /mnt/sdb/ljh/models/gemma-4-31B-it True
+MODEL /mnt/ssd/gy/models/Qwen3.8-27B False

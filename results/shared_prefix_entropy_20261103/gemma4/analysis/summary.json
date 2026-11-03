@@ -1,0 +1,1996 @@
+{
+  "model": "gemma4",
+  "questions": 150,
+  "trajectories": 300,
+  "tokens": 293345,
+  "cohorts": {
+    "ClockQA": {
+      "questions": 50,
+      "groups": {
+        "hold": 10,
+        "neutral_wrong": 19,
+        "flip": 21
+      },
+      "neutral": {
+        "correct": 31,
+        "wrong": 19
+      },
+      "user_wrong": {
+        "correct": 14,
+        "wrong": 36
+      },
+      "user_right": {
+        "correct": 38,
+        "wrong": 12
+      },
+      "unique_images": 50
+    },
+    "PathVQA": {
+      "questions": 50,
+      "groups": {
+        "hold": 13,
+        "neutral_unresolved": 24,
+        "neutral_wrong": 8,
+        "flip": 3,
+        "pressure_unresolved": 2
+      },
+      "neutral": {
+        "correct": 18,
+        "unresolved": 24,
+        "wrong": 8
+      },
+      "user_wrong": {
+        "correct": 20,
+        "unresolved": 7,
+        "wrong": 23
+      },
+      "user_right": {
+        "correct": 37,
+        "wrong": 8,
+        "unresolved": 5
+      },
+      "unique_images": 19
+    },
+    "PENDULUM": {
+      "questions": 50,
+      "groups": {
+        "hold": 41,
+        "flip": 3,
+        "neutral_wrong": 6
+      },
+      "neutral": {
+        "correct": 44,
+        "wrong": 6
+      },
+      "user_wrong": {
+        "correct": 42,
+        "wrong": 8
+      },
+      "user_right": {
+        "correct": 45,
+        "wrong": 5
+      },
+      "unique_images": 20
+    }
+  },
+  "groups": [
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "flip",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 21,
+      "eligible": 21,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.31886209559217,
+        "H_neutral": 0.3327521062759179,
+        "delta_H": -0.013890010667543027,
+        "JSD": 0.007059415304692957,
+        "delta_logp": 0.05539585114087061
+      },
+      "delta_H_bootstrap95": [
+        -0.017065548852044466,
+        -0.01094886459103839
+      ],
+      "min16_eligible": 21
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "flip",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 21,
+      "eligible": 21,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.32542604984903406,
+        "H_neutral": 0.3332380800697545,
+        "delta_H": -0.007812030228285458,
+        "JSD": 0.003421100841739712,
+        "delta_logp": 0.016518606929574943
+      },
+      "delta_H_bootstrap95": [
+        -0.00974623164930271,
+        -0.006107528737193715
+      ],
+      "min16_eligible": 21
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "flip",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 21,
+      "eligible": 21,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.32542604984903406,
+        "H_neutral": 0.3332380800697545,
+        "delta_H": -0.007812030228285458,
+        "JSD": 0.003421100841739712,
+        "delta_logp": 0.016518606929574943
+      },
+      "delta_H_bootstrap95": [
+        -0.009849408903256649,
+        -0.00610082665533591
+      ],
+      "min16_eligible": 21
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "flip",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 21,
+      "eligible": 21,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3365521828687386,
+        "H_neutral": 0.35276888207498375,
+        "delta_H": -0.01621669924219239,
+        "JSD": 0.008566391548920065,
+        "delta_logp": 0.06497887446922314
+      },
+      "delta_H_bootstrap95": [
+        -0.019339088545753,
+        -0.013179084716998002
+      ],
+      "min16_eligible": 21
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "flip",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 21,
+      "eligible": 21,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3463756468418388,
+        "H_neutral": 0.3561390710500995,
+        "delta_H": -0.009763424216330833,
+        "JSD": 0.004905859472153964,
+        "delta_logp": 0.02477976677765861
+      },
+      "delta_H_bootstrap95": [
+        -0.011972095230693139,
+        -0.007509870536169812
+      ],
+      "min16_eligible": 21
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "flip",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 21,
+      "eligible": 21,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3463756468418388,
+        "H_neutral": 0.3561390710500995,
+        "delta_H": -0.009763424216330833,
+        "JSD": 0.004905859472153964,
+        "delta_logp": 0.02477976677765861
+      },
+      "delta_H_bootstrap95": [
+        -0.012143162866159908,
+        -0.00757600977901147
+      ],
+      "min16_eligible": 21
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "hold",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 10,
+      "eligible": 10,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.2906203990937187,
+        "H_neutral": 0.308158120008862,
+        "delta_H": -0.01753772089072095,
+        "JSD": 0.009602007475332072,
+        "delta_logp": 0.09166474344021265
+      },
+      "delta_H_bootstrap95": [
+        -0.023181357313405912,
+        -0.012358567932266884
+      ],
+      "min16_eligible": 10
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "hold",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 10,
+      "eligible": 10,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.29700777850775206,
+        "H_neutral": 0.30816573004582487,
+        "delta_H": -0.011157951521032525,
+        "JSD": 0.00411546279844089,
+        "delta_logp": 0.01986131747223567
+      },
+      "delta_H_bootstrap95": [
+        -0.015201587334948918,
+        -0.007619924322555748
+      ],
+      "min16_eligible": 10
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "hold",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 10,
+      "eligible": 10,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.29700777850775206,
+        "H_neutral": 0.30816573004582487,
+        "delta_H": -0.011157951521032525,
+        "JSD": 0.00411546279844089,
+        "delta_logp": 0.01986131747223567
+      },
+      "delta_H_bootstrap95": [
+        -0.015264636299288429,
+        -0.00755009483613379
+      ],
+      "min16_eligible": 10
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "hold",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 10,
+      "eligible": 10,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.2891321639221275,
+        "H_neutral": 0.31091856396464285,
+        "delta_H": -0.021786399965200338,
+        "JSD": 0.011343129868970781,
+        "delta_logp": 0.10381311927936672
+      },
+      "delta_H_bootstrap95": [
+        -0.027568328131959648,
+        -0.015987503346904214
+      ],
+      "min16_eligible": 10
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "hold",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 10,
+      "eligible": 10,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.299876087697172,
+        "H_neutral": 0.31284307198318756,
+        "delta_H": -0.012966984278543457,
+        "JSD": 0.0065605740124453065,
+        "delta_logp": 0.044346773623751244
+      },
+      "delta_H_bootstrap95": [
+        -0.017338413293117784,
+        -0.009247600635945596
+      ],
+      "min16_eligible": 10
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "hold",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 10,
+      "eligible": 10,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.299876087697172,
+        "H_neutral": 0.31284307198318756,
+        "delta_H": -0.012966984278543457,
+        "JSD": 0.0065605740124453065,
+        "delta_logp": 0.044346773623751244
+      },
+      "delta_H_bootstrap95": [
+        -0.017174654391690056,
+        -0.009116360548980958
+      ],
+      "min16_eligible": 10
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "pressure_unresolved",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "pressure_unresolved",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "pressure_unresolved",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "pressure_unresolved",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "pressure_unresolved",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "pressure_unresolved",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_wrong",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 19,
+      "eligible": 19,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3386197331263285,
+        "H_neutral": 0.3521202096486447,
+        "delta_H": -0.013500476501761068,
+        "JSD": 0.006367281064284951,
+        "delta_logp": 0.04949871162494234
+      },
+      "delta_H_bootstrap95": [
+        -0.017182665828709996,
+        -0.010466144655524534
+      ],
+      "min16_eligible": 19
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_wrong",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 19,
+      "eligible": 19,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.34471510045708065,
+        "H_neutral": 0.353102763496324,
+        "delta_H": -0.008387663036702875,
+        "JSD": 0.003509827718788175,
+        "delta_logp": 0.019022289192691322
+      },
+      "delta_H_bootstrap95": [
+        -0.010502059722627662,
+        -0.00663464553420728
+      ],
+      "min16_eligible": 19
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_wrong",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 19,
+      "eligible": 19,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.34471510045708065,
+        "H_neutral": 0.353102763496324,
+        "delta_H": -0.008387663036702875,
+        "JSD": 0.003509827718788175,
+        "delta_logp": 0.019022289192691322
+      },
+      "delta_H_bootstrap95": [
+        -0.01045667594177125,
+        -0.00667676919474962
+      ],
+      "min16_eligible": 19
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_wrong",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 19,
+      "eligible": 19,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.32729161425991476,
+        "H_neutral": 0.340102252602912,
+        "delta_H": -0.012810638322423252,
+        "JSD": 0.008116240791366492,
+        "delta_logp": 0.06406489411241884
+      },
+      "delta_H_bootstrap95": [
+        -0.014940564497295805,
+        -0.010666513881689202
+      ],
+      "min16_eligible": 19
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_wrong",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 19,
+      "eligible": 19,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.33553326917207166,
+        "H_neutral": 0.34154160045200094,
+        "delta_H": -0.0060083312661564576,
+        "JSD": 0.004477177829221095,
+        "delta_logp": 0.02713575718026253
+      },
+      "delta_H_bootstrap95": [
+        -0.007482835529001225,
+        -0.004601195231281006
+      ],
+      "min16_eligible": 19
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_wrong",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 19,
+      "eligible": 19,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.33553326917207166,
+        "H_neutral": 0.34154160045200094,
+        "delta_H": -0.0060083312661564576,
+        "JSD": 0.004477177829221095,
+        "delta_logp": 0.02713575718026253
+      },
+      "delta_H_bootstrap95": [
+        -0.007441380925570996,
+        -0.004667737537451156
+      ],
+      "min16_eligible": 19
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_unresolved",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_unresolved",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_unresolved",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_unresolved",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_unresolved",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "group": "neutral_unresolved",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "flip",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.43348006580410203,
+        "H_neutral": 0.46111619598186776,
+        "delta_H": -0.027636130236181625,
+        "JSD": 0.014733617953272524,
+        "delta_logp": 0.15530344067571905
+      },
+      "delta_H_bootstrap95": [
+        -0.031902101100745546,
+        -0.022986890758510205
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "flip",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4521503399232665,
+        "H_neutral": 0.47558583491993334,
+        "delta_H": -0.023435495042131632,
+        "JSD": 0.008655567167382848,
+        "delta_logp": 0.07561711226581139
+      },
+      "delta_H_bootstrap95": [
+        -0.03185029612306882,
+        -0.013285092371836229
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "flip",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4521503399232665,
+        "H_neutral": 0.47558583491993334,
+        "delta_H": -0.023435495042131632,
+        "JSD": 0.008655567167382848,
+        "delta_logp": 0.07561711226581139
+      },
+      "delta_H_bootstrap95": [
+        -0.03185029612306882,
+        -0.013285092371836229
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "flip",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3828221888535879,
+        "H_neutral": 0.4099176791104746,
+        "delta_H": -0.02709549023447934,
+        "JSD": 0.016963513527060246,
+        "delta_logp": 0.18499084402092758
+      },
+      "delta_H_bootstrap95": [
+        -0.028677707367606692,
+        -0.025893086783350668
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "flip",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.39967578565218537,
+        "H_neutral": 0.43134341158007,
+        "delta_H": -0.03166762588778855,
+        "JSD": 0.01934629417887849,
+        "delta_logp": 0.21302153132681087
+      },
+      "delta_H_bootstrap95": [
+        -0.03297218471436163,
+        -0.030529748901643644
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "flip",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4125566926255414,
+        "H_neutral": 0.43467530371278584,
+        "delta_H": -0.02211861108139746,
+        "JSD": 0.014183970651543736,
+        "delta_logp": 0.1554038204926482
+      },
+      "delta_H_bootstrap95": [
+        -0.03150094404736038,
+        -0.00432514029518836
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "hold",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 13,
+      "eligible": 13,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.38314632715059244,
+        "H_neutral": 0.41285107650908276,
+        "delta_H": -0.029704749380175765,
+        "JSD": 0.018588790232829222,
+        "delta_logp": 0.17619163881564737
+      },
+      "delta_H_bootstrap95": [
+        -0.03356340840434414,
+        -0.025844469871934787
+      ],
+      "min16_eligible": 13
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "hold",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 13,
+      "eligible": 13,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4081033650511039,
+        "H_neutral": 0.43154111736551237,
+        "delta_H": -0.02343775228873543,
+        "JSD": 0.013441605057867428,
+        "delta_logp": 0.11590044892118842
+      },
+      "delta_H_bootstrap95": [
+        -0.028601872603476998,
+        -0.018079872030229656
+      ],
+      "min16_eligible": 13
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "hold",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 13,
+      "eligible": 13,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4095406113125112,
+        "H_neutral": 0.4304921418324915,
+        "delta_H": -0.02095153049643326,
+        "JSD": 0.011812706301284873,
+        "delta_logp": 0.09499123430195877
+      },
+      "delta_H_bootstrap95": [
+        -0.025596331486785997,
+        -0.015742724845190473
+      ],
+      "min16_eligible": 13
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "hold",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 13,
+      "eligible": 13,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3860559252963625,
+        "H_neutral": 0.4126886023729715,
+        "delta_H": -0.02663267706988545,
+        "JSD": 0.014924726938559747,
+        "delta_logp": 0.1459090641085045
+      },
+      "delta_H_bootstrap95": [
+        -0.03240698065113088,
+        -0.02135251252182725
+      ],
+      "min16_eligible": 13
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "hold",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 13,
+      "eligible": 13,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.41415535889182276,
+        "H_neutral": 0.4350494645047696,
+        "delta_H": -0.02089410563896767,
+        "JSD": 0.01107372024281975,
+        "delta_logp": 0.10191553664303117
+      },
+      "delta_H_bootstrap95": [
+        -0.02572001032061954,
+        -0.016302172107887463
+      ],
+      "min16_eligible": 13
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "hold",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 13,
+      "eligible": 13,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.41415535889182276,
+        "H_neutral": 0.4350494645047696,
+        "delta_H": -0.02089410563896767,
+        "JSD": 0.01107372024281975,
+        "delta_logp": 0.10191553664303117
+      },
+      "delta_H_bootstrap95": [
+        -0.02551622621412007,
+        -0.016345689185309768
+      ],
+      "min16_eligible": 13
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "pressure_unresolved",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 2,
+      "eligible": 2,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4689892343209377,
+        "H_neutral": 0.47887828774442676,
+        "delta_H": -0.009889053307807899,
+        "JSD": 0.00799624560202708,
+        "delta_logp": 0.06021172924918798
+      },
+      "delta_H_bootstrap95": [
+        -0.01137384053469372,
+        -0.008404266080922079
+      ],
+      "min16_eligible": 2
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "pressure_unresolved",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 2,
+      "eligible": 2,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4795461187822281,
+        "H_neutral": 0.4874368710426118,
+        "delta_H": -0.007890752177429551,
+        "JSD": 0.0064228276959759105,
+        "delta_logp": 0.05123944799992834
+      },
+      "delta_H_bootstrap95": [
+        -0.012196869294966745,
+        -0.0035846350598923594
+      ],
+      "min16_eligible": 2
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "pressure_unresolved",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 2,
+      "eligible": 2,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4795461187822281,
+        "H_neutral": 0.4874368710426118,
+        "delta_H": -0.007890752177429551,
+        "JSD": 0.0064228276959759105,
+        "delta_logp": 0.05123944799992834
+      },
+      "delta_H_bootstrap95": [
+        -0.012196869294966745,
+        -0.0035846350598923594
+      ],
+      "min16_eligible": 2
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "pressure_unresolved",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 2,
+      "eligible": 2,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.41106054061792674,
+        "H_neutral": 0.4268773682793435,
+        "delta_H": -0.015816827759116314,
+        "JSD": 0.011850906469734983,
+        "delta_logp": 0.10380666118903377
+      },
+      "delta_H_bootstrap95": [
+        -0.01721810016592682,
+        -0.014415555352305806
+      ],
+      "min16_eligible": 2
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "pressure_unresolved",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 2,
+      "eligible": 2,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4253849730299004,
+        "H_neutral": 0.4374572107904115,
+        "delta_H": -0.012072237842133769,
+        "JSD": 0.00891563530686512,
+        "delta_logp": 0.07777659290357537
+      },
+      "delta_H_bootstrap95": [
+        -0.01910526579494782,
+        -0.00503920988931972
+      ],
+      "min16_eligible": 2
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "pressure_unresolved",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 2,
+      "eligible": 2,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4261732949102841,
+        "H_neutral": 0.43647429103317786,
+        "delta_H": -0.010300996212789914,
+        "JSD": 0.008217253373413108,
+        "delta_logp": 0.07519024476279004
+      },
+      "delta_H_bootstrap95": [
+        -0.01910526579494782,
+        -0.0014967266306320098
+      ],
+      "min16_eligible": 2
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_wrong",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 8,
+      "eligible": 8,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3651312843499345,
+        "H_neutral": 0.4025353917477059,
+        "delta_H": -0.037404107467082316,
+        "JSD": 0.01937896400805269,
+        "delta_logp": 0.17789693636182083
+      },
+      "delta_H_bootstrap95": [
+        -0.04703686643916896,
+        -0.028826485849656094
+      ],
+      "min16_eligible": 8
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_wrong",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 8,
+      "eligible": 8,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3883151802341064,
+        "H_neutral": 0.4234606721557515,
+        "delta_H": -0.03514549201876967,
+        "JSD": 0.01715328674894937,
+        "delta_logp": 0.14751606397436434
+      },
+      "delta_H_bootstrap95": [
+        -0.046143825865731306,
+        -0.025773629978576885
+      ],
+      "min16_eligible": 8
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_wrong",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 8,
+      "eligible": 8,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.392172452677007,
+        "H_neutral": 0.42019036507881163,
+        "delta_H": -0.028017912480300965,
+        "JSD": 0.013657619697296154,
+        "delta_logp": 0.10802368100543723
+      },
+      "delta_H_bootstrap95": [
+        -0.0394757993311752,
+        -0.020368877318159836
+      ],
+      "min16_eligible": 8
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_wrong",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 8,
+      "eligible": 8,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.39054156970023135,
+        "H_neutral": 0.41757716218114455,
+        "delta_H": -0.027035592480538828,
+        "JSD": 0.014201407150751504,
+        "delta_logp": 0.13403982228538527
+      },
+      "delta_H_bootstrap95": [
+        -0.03531494313979665,
+        -0.01983548703246292
+      ],
+      "min16_eligible": 8
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_wrong",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 8,
+      "eligible": 8,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4123204222355268,
+        "H_neutral": 0.43987405369038324,
+        "delta_H": -0.027553631457988566,
+        "JSD": 0.012749781515550685,
+        "delta_logp": 0.1205237821947224
+      },
+      "delta_H_bootstrap95": [
+        -0.03880357433125175,
+        -0.017793860088078865
+      ],
+      "min16_eligible": 8
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_wrong",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 8,
+      "eligible": 8,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.41258513211816206,
+        "H_neutral": 0.43986991254262375,
+        "delta_H": -0.02728478042504352,
+        "JSD": 0.011569538473966325,
+        "delta_logp": 0.10669967485446852
+      },
+      "delta_H_bootstrap95": [
+        -0.039550523495086046,
+        -0.017170621313865514
+      ],
+      "min16_eligible": 8
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_unresolved",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 24,
+      "eligible": 24,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4235950710086945,
+        "H_neutral": 0.4480005694832248,
+        "delta_H": -0.024405498519340173,
+        "JSD": 0.015519279711425624,
+        "delta_logp": 0.1406048269336081
+      },
+      "delta_H_bootstrap95": [
+        -0.028061397852692852,
+        -0.020745779486804884
+      ],
+      "min16_eligible": 24
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_unresolved",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 24,
+      "eligible": 24,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.44215542536946534,
+        "H_neutral": 0.46288011090724496,
+        "delta_H": -0.02072468557440541,
+        "JSD": 0.013162248371946222,
+        "delta_logp": 0.11623667017456378
+      },
+      "delta_H_bootstrap95": [
+        -0.025296549291759677,
+        -0.01632684718542496
+      ],
+      "min16_eligible": 24
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_unresolved",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 24,
+      "eligible": 24,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4426436642361998,
+        "H_neutral": 0.4629200976678871,
+        "delta_H": -0.020276433466096883,
+        "JSD": 0.01292989883790252,
+        "delta_logp": 0.11405522872843007
+      },
+      "delta_H_bootstrap95": [
+        -0.02531183091277455,
+        -0.015742367747407244
+      ],
+      "min16_eligible": 24
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_unresolved",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 24,
+      "eligible": 24,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.42562925282645464,
+        "H_neutral": 0.4492115989922253,
+        "delta_H": -0.02358234617078266,
+        "JSD": 0.013085894936230738,
+        "delta_logp": 0.11777701478701484
+      },
+      "delta_H_bootstrap95": [
+        -0.026864272584218505,
+        -0.02078223465336858
+      ],
+      "min16_eligible": 24
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_unresolved",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 24,
+      "eligible": 24,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4455920993990261,
+        "H_neutral": 0.4637228938346772,
+        "delta_H": -0.01813079442949699,
+        "JSD": 0.009282112495762704,
+        "delta_logp": 0.07525389388245644
+      },
+      "delta_H_bootstrap95": [
+        -0.02153138601891165,
+        -0.014778577913113742
+      ],
+      "min16_eligible": 24
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "group": "neutral_unresolved",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 24,
+      "eligible": 24,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.4458577544990816,
+        "H_neutral": 0.4638211457875989,
+        "delta_H": -0.01796339128082049,
+        "JSD": 0.009168270309558336,
+        "delta_logp": 0.07383967746134218
+      },
+      "delta_H_bootstrap95": [
+        -0.021411962301189063,
+        -0.014619510342948908
+      ],
+      "min16_eligible": 24
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "flip",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3390641689407109,
+        "H_neutral": 0.3615548620043989,
+        "delta_H": -0.022490693025769577,
+        "JSD": 0.018490089751409977,
+        "delta_logp": 0.16942079712397723
+      },
+      "delta_H_bootstrap95": [
+        -0.03734346873465922,
+        -0.011703669731788055
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "flip",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.35757670092834315,
+        "H_neutral": 0.3758161919997562,
+        "delta_H": -0.018239491053435666,
+        "JSD": 0.00931994135834168,
+        "delta_logp": 0.062431325293539924
+      },
+      "delta_H_bootstrap95": [
+        -0.04124984497121529,
+        -0.004824827750127587
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "flip",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.35767479536628793,
+        "H_neutral": 0.3754293363967193,
+        "delta_H": -0.017754541028816725,
+        "JSD": 0.0091868461356796,
+        "delta_logp": 0.061972392004608995
+      },
+      "delta_H_bootstrap95": [
+        -0.04124984497121529,
+        -0.0033699776762707648
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "flip",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.2903942966008245,
+        "H_neutral": 0.3138286319583178,
+        "delta_H": -0.02343433523671807,
+        "JSD": 0.022245798513689883,
+        "delta_logp": 0.23864545480187566
+      },
+      "delta_H_bootstrap95": [
+        -0.027256360802676474,
+        -0.020845604968527966
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "flip",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3059353311363408,
+        "H_neutral": 0.3162513643078171,
+        "delta_H": -0.01031603313045177,
+        "JSD": 0.004234389254826426,
+        "delta_logp": 0.026689368284596202
+      },
+      "delta_H_bootstrap95": [
+        -0.01857385391170623,
+        -0.0008473707946149352
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "flip",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 3,
+      "eligible": 3,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3066635242612281,
+        "H_neutral": 0.31613328181487477,
+        "delta_H": -0.009469757498996843,
+        "JSD": 0.004070761697195493,
+        "delta_logp": 0.026214430622153027
+      },
+      "delta_H_bootstrap95": [
+        -0.016035027017341448,
+        -0.0008473707946149352
+      ],
+      "min16_eligible": 3
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "hold",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 41,
+      "eligible": 41,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.32374917310511153,
+        "H_neutral": 0.3452220656446645,
+        "delta_H": -0.02147289258314176,
+        "JSD": 0.02164906400332486,
+        "delta_logp": 0.24820126720820834
+      },
+      "delta_H_bootstrap95": [
+        -0.028762122514381316,
+        -0.014429542327299602
+      ],
+      "min16_eligible": 41
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "hold",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 41,
+      "eligible": 41,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3378270425784373,
+        "H_neutral": 0.34726853234716737,
+        "delta_H": -0.009441489775784222,
+        "JSD": 0.006445626530518589,
+        "delta_logp": 0.03534831792591661
+      },
+      "delta_H_bootstrap95": [
+        -0.014893446139294173,
+        -0.0042330947186551655
+      ],
+      "min16_eligible": 40
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "hold",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 41,
+      "eligible": 39,
+      "no_remaining_thinking": 2,
+      "means": {
+        "H_pressure": 0.3434966012002208,
+        "H_neutral": 0.3532797933207427,
+        "delta_H": -0.009783192126407143,
+        "JSD": 0.006238852543757912,
+        "delta_logp": 0.03345774747553716
+      },
+      "delta_H_bootstrap95": [
+        -0.013882326826223304,
+        -0.00555126658188772
+      ],
+      "min16_eligible": 39
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "hold",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 41,
+      "eligible": 41,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3346033523868153,
+        "H_neutral": 0.35588185491256835,
+        "delta_H": -0.021278502513465358,
+        "JSD": 0.021426407770603444,
+        "delta_logp": 0.2410641039178427
+      },
+      "delta_H_bootstrap95": [
+        -0.02785161202200095,
+        -0.014757618358750798
+      ],
+      "min16_eligible": 41
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "hold",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 41,
+      "eligible": 40,
+      "no_remaining_thinking": 1,
+      "means": {
+        "H_pressure": 0.3578340086211039,
+        "H_neutral": 0.3706438494660079,
+        "delta_H": -0.01280984081642215,
+        "JSD": 0.010632369564113904,
+        "delta_logp": 0.0939038747942679
+      },
+      "delta_H_bootstrap95": [
+        -0.021644125832421965,
+        -0.0051604736467771445
+      ],
+      "min16_eligible": 40
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "hold",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 41,
+      "eligible": 40,
+      "no_remaining_thinking": 1,
+      "means": {
+        "H_pressure": 0.3567689306306009,
+        "H_neutral": 0.37134145355154935,
+        "delta_H": -0.014572522894515967,
+        "JSD": 0.010974030487361468,
+        "delta_logp": 0.09772035834585995
+      },
+      "delta_H_bootstrap95": [
+        -0.02601702166272103,
+        -0.005512971446549431
+      ],
+      "min16_eligible": 40
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "pressure_unresolved",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "pressure_unresolved",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "pressure_unresolved",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "pressure_unresolved",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "pressure_unresolved",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "pressure_unresolved",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_wrong",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 6,
+      "eligible": 6,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.31997415536022294,
+        "H_neutral": 0.33395611227548183,
+        "delta_H": -0.013981956997244395,
+        "JSD": 0.011497247797552386,
+        "delta_logp": 0.10131291376437244
+      },
+      "delta_H_bootstrap95": [
+        -0.030391213935442838,
+        0.0010461228514913505
+      ],
+      "min16_eligible": 6
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_wrong",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 6,
+      "eligible": 6,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.31601146895340554,
+        "H_neutral": 0.3204652443054173,
+        "delta_H": -0.004453775348814286,
+        "JSD": 0.0044807349245945425,
+        "delta_logp": 0.01790780253185965
+      },
+      "delta_H_bootstrap95": [
+        -0.010209686145972915,
+        0.0005321358012828832
+      ],
+      "min16_eligible": 6
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_wrong",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 6,
+      "eligible": 6,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.31601146895340554,
+        "H_neutral": 0.3204652443054173,
+        "delta_H": -0.004453775348814286,
+        "JSD": 0.0044807349245945425,
+        "delta_logp": 0.01790780253185965
+      },
+      "delta_H_bootstrap95": [
+        -0.010603886916801022,
+        0.0007547360977792442
+      ],
+      "min16_eligible": 6
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_wrong",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 6,
+      "eligible": 6,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.32543041709878995,
+        "H_neutral": 0.33885483627111895,
+        "delta_H": -0.013424419201288434,
+        "JSD": 0.014248799532212642,
+        "delta_logp": 0.12510323633644868
+      },
+      "delta_H_bootstrap95": [
+        -0.032157902169790864,
+        0.005129637789728239
+      ],
+      "min16_eligible": 6
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_wrong",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 6,
+      "eligible": 6,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3473292830291061,
+        "H_neutral": 0.3483364716291214,
+        "delta_H": -0.0010071886315709212,
+        "JSD": 0.008586295551075741,
+        "delta_logp": 0.056828119397377384
+      },
+      "delta_H_bootstrap95": [
+        -0.007465285036171527,
+        0.007810539419560235
+      ],
+      "min16_eligible": 6
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_wrong",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 6,
+      "eligible": 6,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": 0.3473292830291061,
+        "H_neutral": 0.3483364716291214,
+        "delta_H": -0.0010071886315709212,
+        "JSD": 0.008586295551075741,
+        "delta_logp": 0.056828119397377384
+      },
+      "delta_H_bootstrap95": [
+        -0.00746476340279366,
+        0.00764583156502381
+      ],
+      "min16_eligible": 6
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_unresolved",
+      "condition": "belief",
+      "scope": "think_all",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_unresolved",
+      "condition": "belief",
+      "scope": "after64",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_unresolved",
+      "condition": "belief",
+      "scope": "after_opening",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_unresolved",
+      "condition": "belief_right",
+      "scope": "think_all",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_unresolved",
+      "condition": "belief_right",
+      "scope": "after64",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "group": "neutral_unresolved",
+      "condition": "belief_right",
+      "scope": "after_opening",
+      "total": 0,
+      "eligible": 0,
+      "no_remaining_thinking": 0,
+      "means": {
+        "H_pressure": null,
+        "H_neutral": null,
+        "delta_H": null,
+        "JSD": null,
+        "delta_logp": null
+      },
+      "delta_H_bootstrap95": null,
+      "min16_eligible": 0
+    }
+  ],
+  "methods": {
+    "parallel_full_sequence": 299,
+    "native_single_token_cached": 1
+  },
+  "reused": 0,
+  "min_actual_top20": 0.9995433789954338,
+  "max_prefix_JSD": 0.0006080998573452234,
+  "max_prefix_entropy_difference": 0.04765719175338745,
+  "max_formula_error": 4.070430760781435e-07,
+  "note": "Question-weighted means, bootstrap over questions within each separate group; small groups remain small. No automated semantic label claimed. after_opening excludes first substantive paragraph and at least64output tokens; after64 is fixed cutoff sensitivity."
+}

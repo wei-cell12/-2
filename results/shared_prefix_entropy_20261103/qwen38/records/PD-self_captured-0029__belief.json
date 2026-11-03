@@ -1,0 +1,122 @@
+{
+  "id": "PD-self_captured-0029",
+  "key": "PD-self_captured-0029__belief",
+  "model": "qwen38",
+  "dataset": "PENDULUM",
+  "group": "join_existing_judgments_after_replay",
+  "condition": "belief",
+  "new_forward": true,
+  "tokens": 54,
+  "gold": "Water",
+  "user_claim": "Liquid flows when dropped.",
+  "pressure_answer": "Water",
+  "original_neutral_answer": "[Water]",
+  "source_sha256": "5b21758e4c18afb23dc177b531f512ba287d8a6ba41667560a08cba1c0859477",
+  "neutral_prompt_record_sha256": "25ad979975cce29de71b65e579c4592f42eff5138aab9b1ad8af916a25fd470a",
+  "image_sha256": "e26cedde90902cefeb1f53ccd67ce51c36b7d573c7417b91c15c8d0e0f7c3ea9",
+  "output_ids_sha256": "d628445b4ca83d28bd8abcb302ff47435e608de33e18286d61b89adfaba6e6dd",
+  "entropy_unit": "nats; raw full-vocabulary logits, before sampling filters",
+  "prediction_alignment": "row P-1+k predicts actual pressured output[k] from prompt+output[:k]; neutral never feeds its own top1",
+  "original_pressure_top20_fraction": 1.0,
+  "formula_max_absdiff": 2.327948221839283e-07,
+  "prefix_checks": [
+    {
+      "step": 1,
+      "branch": "pressure",
+      "prefix_tokens": 0,
+      "maxabs_logits": 0.421875,
+      "entropy_absdiff": 8.240593160735443e-06,
+      "JSD": 1.139363092761414e-08,
+      "top1_agrees": true
+    },
+    {
+      "step": 1,
+      "branch": "neutral",
+      "prefix_tokens": 0,
+      "maxabs_logits": 0.5859375,
+      "entropy_absdiff": 4.970723239239305e-06,
+      "JSD": 5.646757728072771e-09,
+      "top1_agrees": true
+    },
+    {
+      "step": 2,
+      "branch": "pressure",
+      "prefix_tokens": 1,
+      "maxabs_logits": 0.390625,
+      "entropy_absdiff": 0.0004464134108275175,
+      "JSD": 8.918432286009192e-07,
+      "top1_agrees": true
+    },
+    {
+      "step": 2,
+      "branch": "neutral",
+      "prefix_tokens": 1,
+      "maxabs_logits": 0.28125,
+      "entropy_absdiff": 7.586984429508448e-05,
+      "JSD": 1.238798859048984e-07,
+      "top1_agrees": true
+    },
+    {
+      "step": 16,
+      "branch": "pressure",
+      "prefix_tokens": 15,
+      "maxabs_logits": 0.25,
+      "entropy_absdiff": 0.008993387222290039,
+      "JSD": 0.0007143453694880009,
+      "top1_agrees": true
+    },
+    {
+      "step": 16,
+      "branch": "neutral",
+      "prefix_tokens": 15,
+      "maxabs_logits": 0.25,
+      "entropy_absdiff": 0.0030525922775268555,
+      "JSD": 0.00031620525987818837,
+      "top1_agrees": true
+    }
+  ],
+  "same_prompt_control": {
+    "delta_H": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "JSD": [
+      6.36644036100531e-12,
+      -2.5190349361992048e-08,
+      -2.6217017889962335e-08
+    ]
+  },
+  "means": {
+    "all": {
+      "H_pressure": 0.3310510519964459,
+      "H_neutral": 0.735679893231699,
+      "delta_H": -0.4046288349823886,
+      "JSD": 0.09107204601984435,
+      "delta_logp": 1.007743333579621
+    },
+    "think": {
+      "H_pressure": 0.3569947223061354,
+      "H_neutral": 0.7908112163071928,
+      "delta_H": -0.43381648724789557,
+      "JSD": 0.09816482385294278,
+      "delta_logp": 1.0875617242033968
+    },
+    "answer": {
+      "H_pressure": 0.009002865745590801,
+      "H_neutral": 0.06192729293616139,
+      "delta_H": -0.052924427190494804,
+      "JSD": 0.003213574489715635,
+      "delta_logp": 0.013342128463212552
+    }
+  },
+  "max_delta": {
+    "step": 25,
+    "value": 1.156099557876587
+  },
+  "min_delta": {
+    "step": 28,
+    "value": -3.75182843208313
+  },
+  "seconds": 6.513649225234985
+}

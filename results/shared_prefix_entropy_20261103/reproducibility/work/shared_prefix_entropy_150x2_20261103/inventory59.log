@@ -1,0 +1,28 @@
+HOST A800-1
+GPU 0, NVIDIA A100 80GB PCIe, 81920, 0, 0
+1, NVIDIA A100 80GB PCIe, 81920, 0, 0
+2, NVIDIA A100 80GB PCIe, 81920, 0, 0
+3, NVIDIA A100 80GB PCIe, 81920, 0, 0
+4, NVIDIA A800 80GB PCIe, 81920, 78559, 100
+5, NVIDIA A800 80GB PCIe, 81920, 78559, 100
+6, NVIDIA A800 80GB PCIe, 81920, 78559, 100
+7, NVIDIA A800 80GB PCIe, 81920, 78559, 100
+ 
+PROCESSES GPU-5c35be03-689b-847f-d98a-4562dc04ee16, 380759, VLLM::Worker_TP0, 78548 MiB
+GPU-db939ae4-edaa-0f00-8fc9-7d86d6db884c, 380760, VLLM::Worker_TP1, 78548 MiB
+GPU-699e8293-cb2f-d9be-17c9-303fde16fbbf, 380605, VLLM::Worker_TP0, 78548 MiB
+GPU-25dcb6a9-4e9f-f192-4e4b-126d3a951467, 380606, VLLM::Worker_TP1, 78548 MiB
+
+ROOT /mnt/sdb/linxin/conflict-cq-20261028
+FILE items.jsonl 97768
+RECORDS obs/records 186 ['prompt_text', 'input_ids', 'output_ids', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'controller', 'id', 'condition', 'mode', 'gold', 'claim', 'message', 'image', 'image_sha256', 'npz', 'npz_sha256', 'saved'] {'id': 'CQ-000', 'condition': 'belief', 'n_in': 209, 'n_out': 502, 'model': None, 'image': '/mnt/sdi/linxin/proofwriter_runs/clockqa-scaleup-20261025/images/CQ-000.jpg', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 350}}
+ROOT /mnt/sdb/linxin/qwen38-pv-20261031
+FILE items.jsonl 108476
+RECORDS obs/records 300 ['prompt_text', 'input_ids', 'output_ids', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'arm', 'id', 'condition', 'gold', 'claim', 'message', 'image', 'image_sha256', 'thinking_empty', 'close_position', 'controller', 'itsm', 'neutral_text', 'model', 'image_grid', 'sampling', 'task', 'semantic_judgment_status', 'run'] {'id': 'PV-000', 'condition': 'belief', 'n_in': 370, 'n_out': 844, 'model': '/mnt/sdb/linxin/ModelList/Qwen3.8-27B', 'image': '/mnt/sdb/linxin/qwen38-pv-20261031/images/PV-000.png', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 562}}
+ROOT /mnt/sdb/linxin/pendulum-20261102/expand4x50
+FILE items.jsonl 230858
+RECORDS qwen38/records 600 ['prompt_text', 'input_ids', 'output_ids', 'raw_output', 'thinking', 'answer', 'n_in', 'n_out', 'n_img', 'seconds', 'seed', 'budget', 'arm', 'id', 'condition', 'gold', 'claim', 'message', 'image', 'image_sha256', 'thinking_empty', 'close_position', 'controller', 'itsm', 'neutral_text', 'model', 'image_grid', 'sampling', 'task', 'dataset', 'domain', 'semantic_judgment_status', 'source_file', 'source_row'] {'id': 'PD-confusing_perspective-0000', 'condition': 'belief', 'n_in': 428, 'n_out': 97, 'model': '/mnt/sdb/ljh/models/Qwen3.8-27B', 'image': '/mnt/sdb/linxin/pendulum-20261102/images/confusing_perspective/VisDefAn_confusing_000000.jpg', 'budget': {'think_limit': 4096, 'answer_limit': 512, 'thinking_budget_hit': False, 'answer_budget_hit': False, 'close_position': 91}}
+MODEL /mnt/sdb/linxin/ModelList/Qwen3.8-27B True
+MODEL /mnt/sdb/ljh/models/Qwen3.8-27B False
+MODEL /mnt/sdb/ljh/models/gemma-4-31B-it False
+MODEL /mnt/ssd/gy/models/Qwen3.8-27B False

@@ -1,0 +1,15 @@
+{
+  "phase": "failed",
+  "pid": 341425,
+  "started": 1793657826.809458,
+  "gpu": "2",
+  "generated_tokens": 0,
+  "model": "qwen38",
+  "rank": 2,
+  "total": 75,
+  "torch": "2.11.0+cu130",
+  "transformers": "5.14.1",
+  "config_sha256": "3c417bba9fb6160f64101909530700e9458c85110916259eb30603a26f298eaf",
+  "error": "FileNotFoundError(2, 'No such file or directory')",
+  "traceback": "Traceback (most recent call last):\n  File \"/mnt/sdb/linxin/shared-prefix-entropy-150x2-20261103/worker.py\", line 180, in <module>\n    try:main()\n        ^^^^^^\n  File \"/mnt/sdb/linxin/shared-prefix-entropy-150x2-20261103/worker.py\", line 100, in main\n    old=Path(job['reuse_root']);summary=json.loads((old/(iid+'.json')).read_text())\n                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/linxin/miniconda3/envs/vllm_new/lib/python3.12/pathlib.py\", line 1027, in read_text\n    with self.open(mode='r', encoding=encoding, errors=errors) as f:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/linxin/miniconda3/envs/vllm_new/lib/python3.12/pathlib.py\", line 1013, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/mnt/sdb/linxin/shared-prefix-entropy-multi12-20261103/CQ-001.json'\n"
+}

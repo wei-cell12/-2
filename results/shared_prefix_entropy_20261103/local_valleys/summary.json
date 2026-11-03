@@ -1,0 +1,77 @@
+{
+  "definition": "Raw per-token delta_H=H_with_U-H_without_U, nats. Exclude first substantive paragraph and at least64output tokens; ordinary thinking tokens only, no original budget-forced tokens. Each maximal contiguous negative run contributes its deepest token if delta_H<=-1. One user-reference event may include multiple runs; these are candidate valleys, not semantically labeled events. Offline extrema use future context and are not themselves an online trigger.",
+  "trajectory_counts": [
+    {
+      "model": "qwen38",
+      "dataset": "ClockQA",
+      "total": 100,
+      "eligible": 100,
+      "with_valley_le_minus1": 91,
+      "candidate_runs": 167,
+      "depth_1_to_2": 116,
+      "depth_2_to_3": 33,
+      "depth_ge3": 18,
+      "minimum": -4.025240898132324
+    },
+    {
+      "model": "qwen38",
+      "dataset": "PathVQA",
+      "total": 100,
+      "eligible": 100,
+      "with_valley_le_minus1": 77,
+      "candidate_runs": 132,
+      "depth_1_to_2": 99,
+      "depth_2_to_3": 26,
+      "depth_ge3": 7,
+      "minimum": -3.7143144607543945
+    },
+    {
+      "model": "qwen38",
+      "dataset": "PENDULUM",
+      "total": 100,
+      "eligible": 51,
+      "with_valley_le_minus1": 29,
+      "candidate_runs": 62,
+      "depth_1_to_2": 41,
+      "depth_2_to_3": 8,
+      "depth_ge3": 13,
+      "minimum": -5.016218662261963
+    },
+    {
+      "model": "gemma4",
+      "dataset": "ClockQA",
+      "total": 100,
+      "eligible": 100,
+      "with_valley_le_minus1": 73,
+      "candidate_runs": 117,
+      "depth_1_to_2": 107,
+      "depth_2_to_3": 10,
+      "depth_ge3": 0,
+      "minimum": -2.825679302215576
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PathVQA",
+      "total": 100,
+      "eligible": 100,
+      "with_valley_le_minus1": 72,
+      "candidate_runs": 102,
+      "depth_1_to_2": 87,
+      "depth_2_to_3": 15,
+      "depth_ge3": 0,
+      "minimum": -2.7853782176971436
+    },
+    {
+      "model": "gemma4",
+      "dataset": "PENDULUM",
+      "total": 100,
+      "eligible": 97,
+      "with_valley_le_minus1": 18,
+      "candidate_runs": 35,
+      "depth_1_to_2": 32,
+      "depth_2_to_3": 3,
+      "depth_ge3": 0,
+      "minimum": -2.470414638519287
+    }
+  ]
+}

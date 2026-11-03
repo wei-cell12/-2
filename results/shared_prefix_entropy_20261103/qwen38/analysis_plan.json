@@ -1,0 +1,36 @@
+{
+  "algorithm": "For each condition trajectory y, compare p_U(.|I,Q,U,y[:k]) with p_0(.|I,Q,y[:k]), k=0..T-1. No independent neutral generation.",
+  "zero_based_predictor_index": true,
+  "output_step": "k+1",
+  "entropy": "full vocabulary native logits, before sampling filters, nats",
+  "primary_analysis": "ordinary thinking tokens after output step64; keep opening separate",
+  "secondary_analysis": "First64 opening reported separately. Semantic opening is not automatically annotated; fixed64 cutoff must not be represented as exact sentence segmentation.",
+  "signals": [
+    "H_pressure",
+    "H_neutral",
+    "delta_H",
+    "JSD",
+    "delta_logp",
+    "rank_pressure",
+    "rank_neutral",
+    "top1_pressure",
+    "top1_neutral"
+  ],
+  "cohorts": "each model existing judgments: neutral correct->wrong,neutral correct->correct,neutral wrong,unresolved; no filtering on right-claim outcome",
+  "group_weighting": "question-level means; datasets/models reported separately; PathVQA repeated images not independent image samples",
+  "valley_units": [
+    "minimum raw thinking token after64",
+    "minimum16-token continuous thinking window after64"
+  ],
+  "checks": {
+    "cpu_tests": 6,
+    "source_and_image_hashes": true,
+    "prompt_ids_exact": true,
+    "original_actual_top20_min": 0.98,
+    "formula_error_max": 0.0001,
+    "prefix_jsd_max": 0.001,
+    "prefix_entropy_absdiff_max": 0.1
+  },
+  "runtime": "multi-GPU sharding only; original per-model config; device_map/max_memory placement may be set explicitly and recorded; no numerical/sampling/prompt/image/model changes; natural process exit",
+  "replay_implementation": "Native whole-sequence teacher forcing with sampled prefix checks; reject numerically failing records and recompute both branches with exact native single-token caching, retaining original gates and saved diagnostics."
+}

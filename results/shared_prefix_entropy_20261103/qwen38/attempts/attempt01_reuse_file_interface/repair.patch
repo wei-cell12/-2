@@ -1,0 +1,14 @@
+--- worker_before.py
++++ worker.py
+@@ -97,9 +97,9 @@
+             done=json.loads((RECORDS/(key+'.json')).read_text());assert done['source_sha256']==src_hash and (RECORDS/(key+'.csv')).exists();summaries.append(done);continue
+         if job.get('reuse_root'):
+             import shutil
+-            old=Path(job['reuse_root']);summary=json.loads((old/(iid+'.json')).read_text())
++            old=Path(job['reuse_root']);summary=json.loads((old/(key+'.json')).read_text())
+             summary.update(key=key,model=MANIFEST['model'],dataset=job['dataset'],group=group,condition=cond,reused_from=str(old),new_forward=False)
+-            shutil.copyfile(old/(iid+'.csv'),RECORDS/(key+'.csv'))
++            shutil.copyfile(old/(key+'.csv'),RECORDS/(key+'.csv'))
+             write(RECORDS/(key+'.json'),summary);summaries.append(summary)
+             print(json.dumps(dict(key=key,reused=True,tokens=len(toks))),flush=True)
+             continue
