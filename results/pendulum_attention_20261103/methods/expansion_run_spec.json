@@ -1,0 +1,48 @@
+{
+  "selected_items": 200,
+  "domains": {
+    "confusing_perspective": 50,
+    "puzzle": 50,
+    "re_used": 50,
+    "self_captured": 50
+  },
+  "excluded_from_new_generation": [
+    "OCR",
+    "camouflaged"
+  ],
+  "models": {
+    "qwen38": {
+      "server59_gpus": [
+        0,
+        1
+      ],
+      "server59_rows": "5 <= source_row < 50; two shards",
+      "server51_prefix": "source_row < 5 remains with existing pilot30; do not regenerate"
+    },
+    "qwen36_moe": {
+      "server59_gpus": [
+        2,
+        3
+      ],
+      "rows": "0 <= source_row < 50; two shards"
+    },
+    "gemma4": {
+      "server51_gpus": [
+        3,
+        5
+      ],
+      "rows": "0 <= source_row < 50; reuse pilot after it completes"
+    }
+  },
+  "seed": 42,
+  "thinking_budget": 4096,
+  "answer_budget": 512,
+  "weights_copied": false,
+  "expected_per_model_records": 600,
+  "excluded_51_gpus": [
+    0,
+    4
+  ],
+  "sampling_model_configs_unchanged_except_existing_model_paths": true,
+  "source_sha256": "1ace07ba98ca38b501ea7bbc3d3086e6f5e9a9f06d8c571749090345512f292c"
+}

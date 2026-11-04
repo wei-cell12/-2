@@ -1,0 +1,48 @@
+{
+  "dataset": "PENDULUM",
+  "source": "https://github.com/ashikiut/pendulum",
+  "official_image_folder": "https://drive.google.com/drive/folders/1RiyKjc7EGWXBjNpZe95jIh8hAgRKs8GM",
+  "items": 1426,
+  "images": 568,
+  "domains": {
+    "OCR": 121,
+    "camouflaged": 185,
+    "confusing_perspective": 180,
+    "puzzle": 101,
+    "re_used": 464,
+    "self_captured": 375
+  },
+  "conditions": [
+    "neutral",
+    "belief_right",
+    "belief"
+  ],
+  "models": [
+    "qwen38",
+    "gemma4"
+  ],
+  "records_per_model": 4278,
+  "total_records": 8556,
+  "protocol": "Original question, then original hint if present, then original format field; each is preserved verbatim and separated by a newline. Prior model-specific thinking and sampling settings retained. This is not a claim of exact replication of the paper inference protocol.",
+  "seed": 42,
+  "think_budget": 4096,
+  "answer_budget": 512,
+  "excluded_gpus": [
+    0,
+    4
+  ],
+  "assignment": {
+    "qwen38": [
+      1,
+      2
+    ],
+    "gemma4": [
+      3,
+      5
+    ]
+  },
+  "moe": "Cancelled by user on 2026-11-02; not part of this run",
+  "discrepancy": "Paper reports 2003 questions/751 images; author public VQA files currently contain 1426 rows referencing 568 unique domain/image pairs. No missing images among these rows.",
+  "annotation_policy": "work/annotation_policy.md; semantic labels pending; format anomalies are not automatically wrong",
+  "items_sha256": "498fa53f0ad1eae6f2446d9e890a644516befa5b0694cdd8eb45687e114614fa"
+}
