@@ -242,6 +242,9 @@ def main():
     fa1.add_argument("--lam", type=float, default=0.5)
     fa1.add_argument("--window", type=int, default=128)
     fa1.add_argument("--report-only", action="store_true", help="只用已有记录重写报告")
+    fa1.add_argument("--phase", default="run", choices=["run", "judge-export", "match-export", "summary"],
+                     help="run：生成；之后 PathVQA、PENDULUM 的盲判读与汇总，与 fp-valley 相同")
+    fa1.add_argument("--datasets", nargs="*", default=None, help="run 且不给 --ids 时：用 fp-valley 的选题做这些数据集")
     fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM、S2VA")
     fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run", "yn-export", "yn-summary"])
     fm2.add_argument("--src-cq", default=None, help="setup：原 ClockQA 目录（读 items.jsonl 和图像）")
@@ -358,13 +361,23 @@ def main():
                 fp_vl.summary(a.root, a.label)
         elif a.cmd == "fp-anchor1":
             from symexp.fp import read_anchor as fp_a1
+            from symexp.fp import valley_inject as fp_vl
             if a.report_only:
                 fp_a1.report(a.root, a.label)
+            elif a.phase == "judge-export":
+                fp_vl.judge_export(a.root)
+            elif a.phase == "match-export":
+                fp_vl.match_export(a.root)
+            elif a.phase == "summary":
+                fp_vl.summary(a.root, a.label, title="锚点一：读图阶段把看图注意力往参照分支拉",
+                              notes=["- 参照分支：提示去掉用户那句话；思考开头第一段提到 user 时（复述段）在参照里删掉，没提时什么都不删；",
+                                     "- 开头一段之后的 128 个 token：看图总量 m' = max(m, m*)，图像内部分配向参照靠 λ = 0.5（固定位置不动）；",
+                                     "- base：参照分支照跑、不改；pull：按上式改。两组同一随机种子。"])
             else:
-                if not (a.entropy_dir and a.model_key and a.ids):
-                    raise SystemExit("fp-anchor1 需要 --entropy-dir、--model-key、--ids")
+                if not (a.entropy_dir and a.model_key and (a.ids or a.datasets)):
+                    raise SystemExit("fp-anchor1 run 需要 --entropy-dir、--model-key，以及 --ids 或 --datasets")
                 fp_a1.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.ids, a.image_dirs,
-                          a.label, seed=a.seed, lam=a.lam, window=a.window)
+                          a.label, seed=a.seed, lam=a.lam, window=a.window, datasets=a.datasets, shard=a.shard)
         elif a.cmd == "fp-restate":
             from symexp.fp import restate_ablation as fp_ra
             fp_ra.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.ids, a.image_dirs, a.label)

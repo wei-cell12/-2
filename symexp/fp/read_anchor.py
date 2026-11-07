@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""锚点一试跑：读图阶段，把受压回答的看图注意力往"干净参照分支"拉（ClockQA，几题）。
+"""锚点一：读图阶段，把受压回答的看图注意力往"干净参照分支"拉（ClockQA / PathVQA / PENDULUM）。
 
 两条分支，同一张图：
   主分支：完整提示（问题 + 用户那句话），正常采样生成，只保存它的输出；
-  参照分支：提示去掉用户那句话；思考里删掉开头的复述段（思考开头到第一个空行）；之后跟着主分支，
+  参照分支：提示去掉用户那句话；思考开头第一段（跳过 "Thinking Process:" 这类短标题）提到 user 时，它是复述段，参照里删掉；
+            没提 user 时什么都不删；之后跟着主分支，
             把主分支写出的读图 token 逐个读入（不生成），只用它的注意力。
             = 复述验证（fp-restate）里的 D。
 窗口：复述段结束后，主分支生成接下来 WINDOW 个 token 的那些步。窗口外不动，参照分支也不跑。
@@ -72,8 +73,21 @@ def jsd_rows(xp: XP, p, q):
     return 0.5 * kl(p, mm) + 0.5 * kl(q, mm)
 
 
+def first_paragraph(text_from_skip: str) -> Optional[str]:
+    """思考开头的第一段（跳过 "Thinking Process:" 这类短标题行）是否已经写完，以及它是不是复述用户：
+    还没写完 → None；写完且提到 user → "user"（复述段，参照分支里删掉）；写完但没提 user → "other"（没有复述段，什么都不删）。
+    推理时只看模型已写的文字，不需要知道用户的答案。"""
+    parts = text_from_skip.lstrip().split("\n\n")
+    for p in parts[:-1]:                                  # 已写完的段落
+        s = p.strip()
+        if not s or (len(s) <= 30 and s.endswith(":")):
+            continue
+        return "user" if "user" in s.lower() else "other"
+    return None
+
+
 def restate_end(text_from_skip: str, n_tok: int, min_tok: int = 4) -> bool:
-    """复述段是否在当前 token 结束：从思考开头起的文字里第一次出现空行，并且至少已有 min_tok 个 token。"""
+    """旧规则（ClockQA 试跑用过）：第一次出现空行。保留给测试对照。"""
     return n_tok >= min_tok and "\n\n" in text_from_skip.lstrip()
 
 
@@ -108,6 +122,7 @@ class AnchorController:
         self.state = "wait"              # wait → window → done；或 none（没找到复述段）
         self.skip = 0 if cfg.think_prefill else None
         self.end = None
+        self.restate_kind = None
         self.wstep, self._cur = 0, 0
         self.ref_cache, self.ref_rope, self.ref_ids, self.ref_logits = None, None, None, []
         self.ref_img: Dict[int, object] = {}
@@ -186,10 +201,12 @@ class AnchorController:
             if self.skip is not None and k > self.skip:
                 if k - self.skip > MAX_RESTATE:
                     self.state = "none"
-                elif restate_end(self.tok.decode(self.out[self.skip:k], skip_special_tokens=False), k - self.skip):
-                    self.end = k
-                    self._ref_prefill()
-                    self.state = "window"
+                else:
+                    kind = first_paragraph(self.tok.decode(self.out[self.skip:k], skip_special_tokens=False))
+                    if kind is not None:
+                        self.end, self.restate_kind = k, kind
+                        self._ref_prefill()
+                        self.state = "window"
         if self.state == "window":
             if self.wstep >= self.window or tok_id == self.b.close_id:
                 self.state = "done"
@@ -234,10 +251,11 @@ class AnchorController:
         t = self.torch
         dev = self.model.device
         n0 = int(self.nbatch["input_ids"].shape[-1])
-        self.ref_ids = self.nbatch["input_ids"][0].tolist() + self.out[:self.skip]
+        keep = self.out[:self.skip] if self.restate_kind == "user" else self.out[:self.end]   # 没有复述段时什么都不删
+        self.ref_ids = self.nbatch["input_ids"][0].tolist() + keep
         L = len(self.ref_ids) - 1
         kw = {}
-        extra = t.tensor([self.out[:self.skip]], dtype=self.nbatch["input_ids"].dtype, device=dev).reshape(1, -1)
+        extra = t.tensor([keep], dtype=self.nbatch["input_ids"].dtype, device=dev).reshape(1, -1)
         for key, v in self.nbatch.items():
             if key == "input_ids":
                 v = t.cat([v, extra], 1)[:, :L]
@@ -291,7 +309,8 @@ class AnchorController:
         kk = min(VERIFY_K, len(self.ref_logits) - 1, len(output) - self.end - 1)
         if kk < 4:
             return {"checked": False}
-        ext = self.out[:self.skip] + output[self.end:self.end + kk]
+        n0 = int(self.nbatch["input_ids"].shape[-1])
+        ext = self.ref_ids[n0:] + output[self.end:self.end + kk]
         inner = self._inner()
         if inner is not None and hasattr(inner, "rope_deltas"):
             inner.rope_deltas = None
@@ -316,7 +335,8 @@ class AnchorController:
         return rep
 
     def summary(self) -> dict:
-        s = {"state": self.state, "skip": self.skip, "restate_end": self.end, "window_steps": self.wstep,
+        s = {"state": self.state, "skip": self.skip, "restate_end": self.end, "restate_kind": self.restate_kind,
+             "window_steps": self.wstep,
              "skipped_layer_calls": self.skipped_layers, "explicit_vs_original": self._rel or None}
         if self.stats:
             a = np.array(self.stats, float)
@@ -392,49 +412,65 @@ def generate(backend, cfg, item: dict, cond: str, arm: str, seed: int = 42, lam:
     rec = {"id": item["id"], "condition": cond, "arm": arm, "lam": lam, "window": window, "seed": seed,
            "gold": item["gold"], "claim": claim, "output_ids": output,
            "raw_output": tok.decode(output, skip_special_tokens=False), "thinking": thinking, "answer": answer,
-           "outcome": outcome(answer, item["gold"], claim), "final_time": final_time(answer, claim),
+           "outcome": outcome(answer, item["gold"], claim) if item.get("dataset", "ClockQA") == "ClockQA" else None,
+           "final_time": final_time(answer, claim) if item.get("dataset", "ClockQA") == "ClockQA" else None,
            "n_in": n_in, "n_out": len(output), "n_img": int(img_idx.numel()), "seconds": seconds, "budget": budget.metadata(),
-           "restated": tok.decode(output[ctrl.skip:ctrl.end], skip_special_tokens=False) if ctrl.end else None,
+           "restated": tok.decode(output[ctrl.skip:ctrl.end], skip_special_tokens=False)
+           if ctrl.end and ctrl.restate_kind == "user" else None,
+           "first_paragraph": tok.decode(output[ctrl.skip:ctrl.end], skip_special_tokens=False) if ctrl.end else None,
            "controller": ctrl.summary(), "ref_check": verify}
     return rec
 
 
 # ---------------------------------------------------------------- 入口
-def run(cfg, root: str, ent_dir: str, model_key: str, ids: List[str], image_dirs: Optional[List[str]] = None,
-        label: str = "", seed: int = 42, lam: float = LAM, window: int = WINDOW) -> None:
+def run(cfg, root: str, ent_dir: str, model_key: str, ids: Optional[List[str]] = None, image_dirs: Optional[List[str]] = None,
+        label: str = "", seed: int = 42, lam: float = LAM, window: int = WINDOW, datasets: Optional[List[str]] = None,
+        shard: str = "") -> None:
+    """ids 给定时只做这些题；否则用 fp-valley 的选题（每个数据集 20 题，被带偏、守住各一半）做 datasets 里的数据集。"""
     from .conflict import _engine
+    from .pipeline import _shard
     from .trigger_regions import load_entropy, resolve_image, resolve_source
+    from .valley_inject import CONDS, DATASETS, claim_answer, selection
     from .verify import outcome
     os.makedirs(os.path.join(root, "records"), exist_ok=True)
-    ent = load_entropy(ent_dir, model_key, ["ClockQA"])
-    keys = [k for k in sorted(ent) if k[0] in ids]
-    missing = sorted(set(ids) - {k[0] for k in keys})
-    if missing:
-        raise SystemExit(f"熵差实验里没有这些题：{missing}")
+    datasets = datasets or DATASETS
+    ent = load_entropy(ent_dir, model_key, datasets)
+    if ids:
+        keys = [k for k in sorted(ent) if k[0] in ids]
+        missing = sorted(set(ids) - {k[0] for k in keys})
+        if missing:
+            raise SystemExit(f"熵差实验里没有这些题：{missing}")
+    else:
+        sel = selection(ent)
+        with open(os.path.join(root, "selection.json"), "w", encoding="utf-8") as f:
+            json.dump({d: sel[d] for d in datasets if d in sel}, f, ensure_ascii=False, indent=1)
+        keys = [(i, c) for d in datasets for i in sel.get(d, []) for c in CONDS]
+    tasks = _shard([(i, c, arm) for i, c in keys for arm in ARMS], shard)
+    todo = [x for x in tasks if not os.path.exists(os.path.join(root, "records", f"{x[0]}__{x[1]}__{x[2]}.json"))]
+    print(f"[fp-anchor1] 本进程 {len(tasks)} 项，待做 {len(todo)} 项", file=sys.stderr)
     eng = None
-    for iid, c in keys:
+    for n, (iid, c, arm) in enumerate(todo):
         e = ent[(iid, c)]
         job = e["job"]
         item = dict(job["item"])
+        item["dataset"] = e["dataset"]
         orig = json.load(open(resolve_source(job), encoding="utf-8"))
         item["image"] = resolve_image(job, orig, image_dirs)
-        for arm in ARMS:
-            p = os.path.join(root, "records", f"{iid}__{c}__{arm}.json")
-            if os.path.exists(p):
-                continue
-            if eng is None:
-                eng = _engine(cfg)
-            rec = generate(eng.backend, cfg, item, c, arm, seed=seed, lam=lam, window=window)
-            rec["group"] = e["group"]
-            rec["original"] = {"outcome": outcome(orig.get("answer", ""), item["gold"], rec["claim"]),
-                               "answer": orig.get("answer", "")}
-            with open(p + ".tmp", "w", encoding="utf-8") as f:
-                json.dump(rec, f, ensure_ascii=False, indent=1)
-            os.replace(p + ".tmp", p)
-            cs = rec["controller"]
-            print(f"  {iid}__{c} {arm}：{rec['outcome']}，{rec['n_out']} token，{rec['seconds']}s，窗口 {cs['window_steps']} 步，"
-                  f"复述段结束于第 {cs['restate_end']} 个 token，跳过层次数 {cs['skipped_layer_calls']}，参照核对 {rec['ref_check']}",
-                  file=sys.stderr)
+        if eng is None:
+            eng = _engine(cfg)
+        rec = generate(eng.backend, cfg, item, c, arm, seed=seed, lam=lam, window=window)
+        rec.update(dataset=e["dataset"], group=e["group"], question=item["messages"]["neutral"], image=item["image"],
+                   wrong_claim=claim_answer(item.get("claim")), thinking=rec["thinking"])
+        rec["original"] = {"outcome": outcome(orig.get("answer", ""), item["gold"], rec["claim"]) if e["dataset"] == "ClockQA"
+                           else None, "answer": orig.get("answer", "")}
+        p = os.path.join(root, "records", f"{iid}__{c}__{arm}.json")
+        with open(p + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(rec, f, ensure_ascii=False, indent=1)
+        os.replace(p + ".tmp", p)
+        cs = rec["controller"]
+        print(f"  {n + 1}/{len(todo)} {e['dataset']} {iid}__{c} {arm}：{rec['outcome'] or '待判读'}，{rec['n_out']} token，"
+              f"{rec['seconds']}s，窗口 {cs['window_steps']} 步，开头一段结束于第 {cs['restate_end']} 个 token"
+              f"（{cs['restate_kind']}），跳过层次数 {cs['skipped_layer_calls']}，参照核对 {rec['ref_check']}", file=sys.stderr)
     report(root, label)
 
 
@@ -462,8 +498,8 @@ def report(root: str, label: str = "") -> None:
         if not b or not pl:
             continue
         div = first_divergence(b["output_ids"], pl["output_ids"])
-        L.append(f"| {i} · {cname.get(c, c)}（{gname.get(b['group'], b['group'])}） | {b['original']['outcome']} | {b['outcome']} | "
-                 f"{pl['outcome']} | {div} | {pl['controller']['restate_end']} |")
+        L.append(f"| {i} · {cname.get(c, c)}（{gname.get(b['group'], b['group'])}） | {b['original']['outcome'] or '待判读'} | "
+                 f"{b['outcome'] or '待判读'} | {pl['outcome'] or '待判读'} | {div} | {pl['controller']['restate_end']} |")
     L += ["", "## 窗口内的看图注意力（逐步、逐层、逐头平均）", "",
           "看图总量：全部注意力里落在图像上的比例；与参照的差别：图像内部分配与参照分支的 JSD。"
           "pull 组的\"调整后\"是实际用上的注意力；base 组只算不改。", ""]

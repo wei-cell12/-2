@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .read_anchor import first_paragraph
 from .rules import XP
 
 ARMS = ["base", "lead", "img"]
@@ -155,6 +156,7 @@ class ValleyController:
         self.prefilled = False
         self.skip = 0 if cfg.think_prefill else None
         self.end = None
+        self.restate_kind = None
         self.closed = False
         self.trigger = Trigger()
         self.ref_cache, self.ref_rope, self.ref_logits_now, self.ref_logits = None, None, None, []
@@ -258,8 +260,9 @@ class ValleyController:
             if self.skip is None and k >= 13:
                 self.skip = self.think_skip(self.tok, self.cfg, self.out)
             if self.skip is not None and self.skip < k <= self.skip + MAX_RESTATE:
-                if restate_end(self.tok.decode(self.out[self.skip:k], skip_special_tokens=False), k - self.skip):
-                    self.end = k
+                kind = first_paragraph(self.tok.decode(self.out[self.skip:k], skip_special_tokens=False))
+                if kind is not None:
+                    self.end, self.restate_kind = k, kind
         active = self.end is not None and k >= self.end and not self.closed
         alarm, inject = self.trigger.step(dH, active)
         if not alarm:
@@ -475,8 +478,8 @@ def generate(backend, cfg, item: dict, cond: str, arm: str, seed: int = 42, lam:
         ev.update(mass_before=x["before"], mass_after=x["after"])
     return {"arm": arm, "lam": lam, "seed": seed, "output_ids": output, "raw_output": tok.decode(output, skip_special_tokens=False),
             "thinking": thinking, "answer": answer, "n_in": n_in, "n_out": len(output), "n_img": int(img_idx.numel()),
-            "seconds": seconds, "budget": budget.metadata(), "skip": ctrl.skip, "restate_end": ctrl.end,
-            "restated": tok.decode(output[ctrl.skip:ctrl.end], skip_special_tokens=False) if ctrl.end else None,
+            "seconds": seconds, "budget": budget.metadata(), "skip": ctrl.skip, "restate_end": ctrl.end, "restate_kind": ctrl.restate_kind,
+            "restated": tok.decode(output[ctrl.skip:ctrl.end], skip_special_tokens=False) if ctrl.end else None,  # 开头第一段
             "vis_tokens": [tok.decode([x], skip_special_tokens=False) for x in vis_ids], "rec_layers": rec_layers,
             "events": ctrl.events, "dH": [round(x, 4) for x in ctrl.dH], "image_mass": [round(x, 5) for x in ctrl.mass],
             "ref_check": verify, "explicit_vs_original": ctrl._rel or None}
@@ -651,8 +654,9 @@ def match_export(root: str) -> None:
 
 
 # ---------------------------------------------------------------- 汇总
-def summary(root: str, label: str = "") -> None:
+def summary(root: str, label: str = "", title: Optional[str] = None, notes: Optional[List[str]] = None) -> None:
     recs = dict(_records(root))
+    arms = [a for a in ("base", "lead", "img", "pull") if any(r["arm"] == a for r in recs.values())]
     ex = os.path.join(root, "judge_extract")
     labs, keymap, mlabs, order = {}, {}, {}, {}
     if os.path.exists(os.path.join(ex, "SEALED.json")):
@@ -684,48 +688,65 @@ def summary(root: str, label: str = "") -> None:
             continue
         st[(r["id"], r["condition"], r["arm"])] = (ds, status_of(ds, r["condition"], lab, r["gold"]))
     cname = {"belief": "用户说错", "belief_right": "用户说对"}
-    L = [f"# 熵差谷注入视觉信息（LEAD 风格）· {label}", "",
-         f"- 报警：思考里、开头复述段之后，每段连续负熵差里第一次 ΔH ≤ {THRESH}；每条回答最多注入 {MAX_INJECT} 次；",
-         f"- 注入：报警那个 token 下一步读入 (1 − λ)·E[e(v)] + λ·v，λ = {LAM}；lead：v = 视觉特殊 token 词嵌入平均；"
-         "img：v = 图像位置第一层输入按熵差分支注意力加权平均（去掉固定位置，长度对齐）；base：不注入；",
-         "- 三组同一随机种子，第一次注入之前逐 token 相同。", "", "## 答对题数", "",
-         "| 数据集 | 条件 | 题数 | base | lead | img | lead 比 base：改对 / 改错 | img 比 base：改对 / 改错 |",
-         "|---|---|---:|---:|---:|---:|---|---|"]
+    head = notes if notes is not None else [
+        f"- 报警：思考里、开头一段之后，每段连续负熵差里第一次 ΔH ≤ {THRESH}；每条回答最多注入 {MAX_INJECT} 次；",
+        f"- 注入：报警那个 token 下一步读入 (1 − λ)·E[e(v)] + λ·v，λ = {LAM}；lead：v = 视觉特殊 token 词嵌入平均；"
+        "img：v = 图像位置第一层输入按熵差分支注意力加权平均（去掉固定位置，长度对齐）；base：不注入；",
+        "- 各组同一随机种子，第一次注入之前逐 token 相同。"]
+    other = [a for a in arms if a != "base"]
+    L = [f"# {title or '熵差谷注入视觉信息（LEAD 风格）'} · {label}", ""] + head + ["", "## 答对题数", "",
+         "| 数据集 | 条件 | 题数 | " + " | ".join(arms) + " | " + " | ".join(f"{a} 比 base：改对 / 改错" for a in other) + " |",
+         "|---|---|---:|" + "---:|" * len(arms) + "---|" * len(other)]
     for ds in DATASETS:
         for c in CONDS:
             ids = sorted({i for (i, cc, _), (d, _) in st.items() if d == ds and cc == c})
-            ids = [i for i in ids if all((i, c, a) in st for a in ARMS)]
+            ids = [i for i in ids if all((i, c, a) in st for a in arms)]
             if not ids:
                 continue
-            ok = {a: sum(st[(i, c, a)][1] == "答对" for i in ids) for a in ARMS}
+            ok = {a: sum(st[(i, c, a)][1] == "答对" for i in ids) for a in arms}
             ch = {}
-            for a in ("lead", "img"):
+            for a in other:
                 fixed = sum(st[(i, c, "base")][1] != "答对" and st[(i, c, a)][1] == "答对" for i in ids)
                 broke = sum(st[(i, c, "base")][1] == "答对" and st[(i, c, a)][1] != "答对" for i in ids)
                 ch[a] = f"{fixed} / {broke}"
-            L.append(f"| {ds} | {cname[c]} | {len(ids)} | {ok['base']} | {ok['lead']} | {ok['img']} | {ch['lead']} | {ch['img']} |")
+            L.append(f"| {ds} | {cname[c]} | {len(ids)} | " + " | ".join(str(ok[a]) for a in arms) + " | "
+                     + " | ".join(ch[a] for a in other) + " |")
     L += ["", "答对 = 最终答案与正确答案一致（ClockQA 自动比对；PathVQA、PENDULUM 由盲判读抽取答案再比对）。", "",
-          "## 每题结果（答对 / 跟着错误说法 / 其他错 / 未解）", "", "| 题 | 条件 | 熵差实验里的组 | base | lead | img | 报警次数（base） |",
-          "|---|---|---|---|---|---|---:|"]
+          "## 每题结果（答对 / 跟着错误说法 / 其他错 / 未解）", "",
+          "| 题 | 条件 | 熵差实验里的组 | " + " | ".join(arms) + " | 开头一段 |", "|---|---|---|" + "---|" * len(arms) + "---|"]
     for fn, r in sorted(recs.items()):
         if r["arm"] != "base":
             continue
         i, c = r["id"], r["condition"]
-        cells = [st.get((i, c, a), ("", "待判读"))[1] for a in ARMS]
-        L.append(f"| {i} | {cname[c]} | {r['group']} | {cells[0]} | {cells[1]} | {cells[2]} | {len(r['events'])} |")
-    L += ["", "## 报警与看图总量", "",
-          f"看图总量：主分支全部注意力里落在图像上的比例（Qwen 16 个标准层、Gemma 全局层，所有头平均）；报警前后各 {AFTER} 个 token 的平均。", "",
-          "| 数据集 | 方法 | 回答数 | 平均报警次数 | 平均注入次数 | 报警前看图总量 | 报警后看图总量 |", "|---|---|---:|---:|---:|---:|---:|"]
-    for ds in DATASETS:
-        for a in ARMS:
-            rs = [r for r in recs.values() if r["dataset"] == ds and r["arm"] == a]
-            if not rs:
-                continue
-            evs = [ev for r in rs for ev in r["events"]]
-            bf = np.nanmean([ev.get("mass_before", np.nan) for ev in evs]) if evs else float("nan")
-            af = np.nanmean([ev.get("mass_after", np.nan) for ev in evs]) if evs else float("nan")
-            L.append(f"| {ds} | {a} | {len(rs)} | {len(evs) / len(rs):.2f} | {sum(ev['inject'] for ev in evs) / len(rs):.2f} | "
-                     f"{bf * 100:.1f}% | {af * 100:.1f}% |")
-    with open(os.path.join(root, "valley_report.md"), "w", encoding="utf-8") as f:
+        cells = [st.get((i, c, a), ("", "待判读"))[1] for a in arms]
+        kind = r.get("restate_kind") or r.get("controller", {}).get("restate_kind")
+        L.append(f"| {i} | {cname[c]} | {r['group']} | " + " | ".join(cells) + f" | {kind} |")
+    if any("events" in r for r in recs.values()):
+        L += ["", "## 报警与看图总量", "",
+              f"看图总量：主分支全部注意力里落在图像上的比例（Qwen 16 个标准层、Gemma 全局层，所有头平均）；报警前后各 {AFTER} 个 token 的平均。", "",
+              "| 数据集 | 方法 | 回答数 | 平均报警次数 | 平均注入次数 | 报警前看图总量 | 报警后看图总量 |", "|---|---|---:|---:|---:|---:|---:|"]
+        for ds in DATASETS:
+            for a in arms:
+                rs = [r for r in recs.values() if r["dataset"] == ds and r["arm"] == a]
+                if not rs:
+                    continue
+                evs = [ev for r in rs for ev in r["events"]]
+                bf = np.nanmean([ev.get("mass_before", np.nan) for ev in evs]) if evs else float("nan")
+                af = np.nanmean([ev.get("mass_after", np.nan) for ev in evs]) if evs else float("nan")
+                L.append(f"| {ds} | {a} | {len(rs)} | {len(evs) / len(rs):.2f} | {sum(ev['inject'] for ev in evs) / len(rs):.2f} | "
+                         f"{bf * 100:.1f}% | {af * 100:.1f}% |")
+    if any("controller" in r and "by_kind" in r["controller"] for r in recs.values()):
+        L += ["", "## 读图窗口里的看图注意力（pull 组，按数据集平均）", "",
+              "| 数据集 | 层 | 回答数 | 看图总量：调整前 → 调整后 | 与参照的差别（JSD）：调整前 → 调整后 |", "|---|---|---:|---|---|"]
+        for ds in DATASETS:
+            rs = [r for r in recs.values() if r["dataset"] == ds and r["arm"] == "pull" and "by_kind" in r["controller"]]
+            kinds = sorted({k for r in rs for k in r["controller"]["by_kind"]})
+            for k in kinds:
+                v = [r["controller"]["by_kind"][k] for r in rs if k in r["controller"]["by_kind"]]
+                f = lambda x: float(np.mean([y[x] for y in v]))
+                L.append(f"| {ds} | {k} | {len(v)} | {f('mass') * 100:.1f}% → {f('mass_new') * 100:.1f}% | "
+                         f"{f('jsd_before'):.4f} → {f('jsd_after'):.4f} |")
+    name = "valley_report.md" if title is None else "summary_report.md"
+    with open(os.path.join(root, name), "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
-    print(f"[fp-valley] {len(recs)} 条 → {root}/valley_report.md", file=sys.stderr)
+    print(f"[fp-valley] {len(recs)} 条 → {root}/{name}", file=sys.stderr)

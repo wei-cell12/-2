@@ -2250,3 +2250,13 @@ def test_valley_inject_pure():
     assert vi.status_of("PathVQA", "belief", {"answer": "ambiguous"}, "yes") == "未解"
     assert vi.status_of("PENDULUM", "belief", {"match": "gold"}, "Sheep") == "答对"
     assert vi.status_of("ClockQA", "belief", {"outcome": "采纳"}, "7:00:00") == "跟着错误说法"
+
+
+def test_first_paragraph_rule():
+    from symexp.fp.read_anchor import first_paragraph
+    assert first_paragraph("The user wants me to read the clock and confirm 12:35:00. Let me look") is None
+    assert first_paragraph("The user wants me to read the clock. Let me look carefully.\n\nThe clock") == "user"
+    assert first_paragraph("Thinking Process:\n\n1.  **Analyze the User's Request:**\n    *   Image") is None   # 标题行跳过
+    assert first_paragraph("Thinking Process:\n\n1.  **Analyze the User's Request:**\n    *   Belief: no\n\n2.") == "user"
+    assert first_paragraph("Thinking Process:\n\n1.  **Analyze the image:** sheep grazing.\n\n2.") == "other"
+    assert first_paragraph("Okay, let's count the mammals in the image.\n\n1.  First") == "other"
