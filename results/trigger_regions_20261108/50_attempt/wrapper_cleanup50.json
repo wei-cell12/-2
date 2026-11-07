@@ -1,0 +1,38 @@
+{
+  "time": 1794071272.303271,
+  "signals": [
+    {
+      "pid": 35435,
+      "signal": "TERM",
+      "command": "/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/bin/python -u /mnt/sdg/linxin/trigger-regions-pilot-20261108/pilot_supervisor.py /mnt/sdg/linxin/trigger-regions-pilot-20261108"
+    },
+    {
+      "pid": 35436,
+      "signal": "TERM",
+      "command": "bash -c set -o pipefail\n/mnt/sdg/linxin/pathvqa-attn-region-20261024/env/bin/python -u run.py fp-trigger --phase replay --config /mnt/sdg/linxin/shared-prefix-entropy-150x2-20261103/config_used.yaml --root /mnt/sdg/linxin/trigger-regions-gemma4-20261108 --entropy-dir /mnt/sdg/linxin/trigger-regions-pilot-20261108/entropy --model-key gemma4 --image-dirs /mnt/sdg/linxin/shared-prefix-entropy-150x2-20261103/inputs/images --ids CQ-003 CQ-009 PV-013 PV-001 PD-re_used-0009 PD-re_used-0006 2>&1 | tee /mnt/sdg/linxin/trigger-regions-gemma4-20261108/replay_pilot.log"
+    },
+    {
+      "pid": 35438,
+      "signal": "TERM",
+      "command": "tee /mnt/sdg/linxin/trigger-regions-gemma4-20261108/replay_pilot.log"
+    }
+  ],
+  "blocked_model_pid": 35437,
+  "model_signal": "Existing TERM remains pending; no KILL or device reset",
+  "remaining": {
+    "35435": {
+      "exists": false
+    },
+    "35436": {
+      "exists": false
+    },
+    "35437": {
+      "state": "D"
+    },
+    "35438": {
+      "exists": false
+    }
+  },
+  "kernel_log_access": 1,
+  "kernel_log_error": "dmesg: read kernel buffer failed: Operation not permitted"
+}

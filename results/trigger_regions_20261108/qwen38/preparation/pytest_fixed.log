@@ -1,0 +1,630 @@
+.....................................F..F.F...F..F........F.....FF..F.F  [100%]
+=================================== FAILURES ===================================
+_____________________ test_sources_recorder_matches_direct _____________________
+
+    def test_sources_recorder_matches_direct():
+        import pytest
+>       torch = pytest.importorskip("torch")
+
+tests/test_fp.py:845: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+<frozen importlib._bootstrap_external>:883: in exec_module
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+_________________________ test_sources_prompt_recorder _________________________
+
+    def test_sources_prompt_recorder():
+        import pytest
+>       torch = pytest.importorskip("torch")
+
+tests/test_fp.py:971: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+<frozen importlib._bootstrap_external>:883: in exec_module
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+___________________________ test_sources_cut_modify ____________________________
+
+    def test_sources_cut_modify():
+        import pytest
+>       torch = pytest.importorskip("torch")
+
+tests/test_fp.py:1037: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+<frozen importlib._bootstrap_external>:883: in exec_module
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+________________________ test_model2_mmsy_matches_sdpa _________________________
+
+    def test_model2_mmsy_matches_sdpa():
+        import pytest
+>       torch = pytest.importorskip("torch")
+
+tests/test_fp.py:1155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+<frozen importlib._bootstrap_external>:883: in exec_module
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+________________________ test_sources_reading_recorder _________________________
+
+    def test_sources_reading_recorder():
+        import pytest
+>       torch = pytest.importorskip("torch")
+
+tests/test_fp.py:1266: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+<frozen importlib._bootstrap_external>:883: in exec_module
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+_____________________ test_score_recorder_matches_softmax ______________________
+
+    def test_score_recorder_matches_softmax():
+>       torch = pytest.importorskip("torch")
+
+tests/test_fp.py:1642: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+<frozen importlib._bootstrap_external>:883: in exec_module
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+_________ test_attrib_final_norm_probe_does_not_reenter_sequence_hook __________
+
+    def test_attrib_final_norm_probe_does_not_reenter_sequence_hook():
+>       import torch
+
+tests/test_fp.py:1902: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+_________ test_attrib_records_actual_batched_gate_without_reprojection _________
+
+    def test_attrib_records_actual_batched_gate_without_reprojection():
+>       import torch
+
+tests/test_fp.py:1924: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+__________________________ test_preread_extend_inputs __________________________
+
+    def test_preread_extend_inputs():
+>       torch = pytest.importorskip("torch")
+
+tests/test_fp.py:2014: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+<frozen importlib._bootstrap_external>:883: in exec_module
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+_________________________ test_trigger_region_recorder _________________________
+
+    def test_trigger_region_recorder():
+>       torch = pytest.importorskip("torch")
+
+tests/test_fp.py:2081: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1050: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1027: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:688: in _load_unlocked
+    ???
+<frozen importlib._bootstrap_external>:883: in exec_module
+    ???
+<frozen importlib._bootstrap>:241: in _call_with_frames_removed
+    ???
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/__init__.py:2161: in <module>
+    from torch import _VF as _VF, functional as functional  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/functional.py:8: in <module>
+    import torch.nn.functional as F
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/__init__.py:8: in <module>
+    from torch.nn.modules import *  # usort: skip # noqa: F403
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/__init__.py:1: in <module>
+    from .module import Module  # usort: skip
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/nn/modules/module.py:17: in <module>
+    from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/__init__.py:8: in <module>
+    from torch.utils import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/__init__.py:1: in <module>
+    from torch.utils.data.dataloader import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/dataloader.py:24: in <module>
+    import torch.utils.data.graph_settings
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/graph_settings.py:8: in <module>
+    from torch.utils.data.datapipes.iter.sharding import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/__init__.py:1: in <module>
+    from torch.utils.data.datapipes import dataframe as dataframe, iter as iter, map as map
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/__init__.py:1: in <module>
+    from torch.utils.data.datapipes.dataframe.dataframes import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/dataframe/dataframes.py:4: in <module>
+    from torch.utils.data.datapipes._decorator import functional_datapipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/_decorator.py:7: in <module>
+    from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/data/datapipes/datapipe.py:17: in <module>
+    dill = import_dill()
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/torch/utils/_import_utils.py:31: in import_dill
+    import dill
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/__init__.py:26: in <module>
+    from ._dill import (
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:174: in <module>
+    BufferedRandomType = None if IS_PYODIDE else get_file_type('r+b', buffering=-1)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('r+b',), kwargs = {'buffering': -1}
+
+    def get_file_type(*args, **kwargs):
+        open = kwargs.pop("open", __builtin__.open)
+>       f = open(os.devnull, *args, **kwargs)
+E       PermissionError: [Errno 13] Permission denied: '/dev/null'
+
+/mnt/data/users/linxin/skill_spec_gptoss120b/.venv-vllm/lib/python3.10/site-packages/dill/_dill.py:165: PermissionError
+10 failed, 61 passed in 38.81s

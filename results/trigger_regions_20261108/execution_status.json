@@ -1,0 +1,86 @@
+{
+  "scope": "Only 6 specified questions, 12 saved replies per model; no new generation; no full run or GitHub upload.",
+  "commit": "c797d5aed40926f5160ef141ec26d2243012e9ad",
+  "ids": [
+    "CQ-003",
+    "CQ-009",
+    "PV-013",
+    "PV-001",
+    "PD-re_used-0009",
+    "PD-re_used-0006"
+  ],
+  "pytest": {
+    "59": "71 passed in 47.07s",
+    "51_after_TMPDIR_fix": "71 passed in 39.03s",
+    "50": "71 passed in 44.48s",
+    "60_after_private_dill_fix": "71 passed in 37.17s"
+  },
+  "runtime": {
+    "Gemma": {
+      "server": "60",
+      "gpus": [
+        6
+      ],
+      "root": "/mnt/sdg/linxin/trigger-regions-gemma4-20261108",
+      "stage": "complete"
+    },
+    "Qwen": {
+      "server": "60",
+      "gpus": [
+        6
+      ],
+      "root": "/home/linxin/trigger-regions-qwen38-20261108",
+      "stage": "complete"
+    }
+  },
+  "repairs": [
+    "Preserved original modified 50 repository; copied original committed code without source edits.",
+    "51 pull HTTP/1.1 then pytest TMPDIR on data partition.",
+    "60 own files and test artifacts relocated from full data partition to home; source and image path localization recorded, original hashes preserved.",
+    "60 isolated dill file-type discovery compatibility copy avoids write-denied /dev/null; shared environment and device permissions unchanged."
+  ],
+  "result_summary": {
+    "qwen38": {
+      "questions": 6,
+      "replies": 12,
+      "recorded_rows": 2533,
+      "windows": 43,
+      "output_relative_difference_max": 0.005917159840464592,
+      "replay_seconds_sum": 121.35,
+      "wall_seconds": 140.32173252105713,
+      "stage": "complete",
+      "full_run": false
+    },
+    "gemma4": {
+      "questions": 6,
+      "replies": 12,
+      "recorded_rows": 3106,
+      "windows": 48,
+      "output_relative_difference_max": 0.0004901961074210703,
+      "replay_seconds_sum": 9.53,
+      "wall_seconds": 39.570239782333374,
+      "stage": "complete",
+      "full_run": false
+    }
+  },
+  "gpu60": "released, memory0MiB",
+  "gpu50_attempt": {
+    "pid": 35437,
+    "state": "D",
+    "TERM_pending": true,
+    "memory_MiB": {
+      "4": 30730,
+      "6": 30268
+    },
+    "cleanup": "requires kernel wait resolution; no reset or KILL"
+  },
+  "recovery50": {
+    "gpu4_action": "Reset",
+    "gpu6_action": "None",
+    "SIGKILL_pending": true,
+    "SIGTERM_pending": true,
+    "sudo": "password_required",
+    "reset_executed": false,
+    "next_step": "administrator assess targeted GPU4 reset; stop if device-in-use or extra GPUs required"
+  }
+}
