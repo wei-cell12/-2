@@ -1083,3 +1083,218 @@ def run_focus_layers(cq: str, root: str, bel: Dict[str, str], neu: Dict[str, str
     print(f"[reading-layers] {label}：各长度的题数 {[len(rows[W]) for W in READ_WINDOWS]}，层的类型 {order} → {out_md}",
           file=sys.stderr)
     return res
+
+
+# ---------------------------------------------------------------- 按层类型看关键区 E（含去掉固定高亮图块的版本）
+E_FRAC = 0.20             # 关键区 E：每个头在中性回答前 W 个 token 里注意力最高的 20% 图块
+SINK_MULT = 5.0           # 固定高亮图块：同一层、同样图块排列的所有题里，中性时平均份额 ≥ 5 倍均匀份额（1/n）
+SINK_MIN_ITEMS = 5        # 同样图块排列的题少于 5 道时，不判定固定高亮图块
+
+
+def _topk_mask(P: np.ndarray, frac: float, keep: Optional[np.ndarray] = None) -> np.ndarray:
+    """P [..., n]：每行取最高的 frac 个图块（只在 keep 为真的图块里取），返回同形状布尔掩码。"""
+    n = P.shape[-1]
+    if keep is None:
+        keep = np.ones(n, bool)
+    k = max(1, int(round(int(keep.sum()) * frac)))
+    Q = np.where(keep, P, -np.inf)
+    idx = np.argsort(-Q, axis=-1, kind="stable")[..., :k]
+    m = np.zeros(P.shape, bool)
+    np.put_along_axis(m, idx, True, axis=-1)
+    return m
+
+
+def sink_patches(neutral_dists: List[np.ndarray], mult: float = SINK_MULT) -> np.ndarray:
+    """neutral_dists：同样图块排列的若干道题，每道一个中性看图分布 [L, H, n]（图像内部已归一化）。
+    返回 [L, n]：这一层在所有题里平均份额 ≥ mult / n 的图块（不随图像内容变化、总被高亮的位置）。"""
+    avg = np.mean([d.mean(1) for d in neutral_dists], 0)                 # [L, n]：先对头平均，再对题平均
+    return avg >= mult / avg.shape[-1]
+
+
+def item_e_stats(Z: dict, G: int, head_sets: Dict[str, np.ndarray], sink: Optional[np.ndarray],
+                 frac: float = E_FRAC) -> dict:
+    """一道题、前 G 组 token：每个头集合里，按三种条件平均看图总量选出的 96 个头上的
+    关键区 E 份额、去掉固定高亮图块后的关键区 E 份额、固定高亮图块的份额。"""
+    P, M = {}, {}
+    for c in CONDS:
+        P[c] = _norm_img(Z[c]["dist_sum"][:G].astype(np.float64).sum(0))      # [L, H, n]
+        M[c] = Z[c]["mass_sum"][:G].astype(np.float64).sum(0) / (READ_GROUP * G)
+    L = P["neutral"].shape[0]
+    E = _topk_mask(P["neutral"], frac)                                    # [L, H, n]
+    e = {c: (P[c] * E).sum(-1) for c in CONDS}                            # [L, H]
+    e2, sk = None, None
+    if sink is not None:
+        e2 = {c: np.zeros(P[c].shape[:2]) for c in CONDS}
+        sk = {c: np.zeros(P[c].shape[:2]) for c in CONDS}
+        for l in range(L):
+            keep = ~sink[l]
+            if not keep.any():
+                continue
+            Qn = _norm_img(P["neutral"][l] * keep)
+            E2 = _topk_mask(Qn, frac, keep)
+            for c in CONDS:
+                Q = _norm_img(P[c][l] * keep)
+                e2[c][l] = (Q * E2).sum(-1)
+                sk[c][l] = (P[c][l] * sink[l]).sum(-1)
+    score = np.mean([M[c] for c in CONDS], 0)
+    out = {}
+    for name, S in head_sets.items():
+        if not S.any():
+            continue
+        flat = np.where(S.ravel(), score.ravel(), -np.inf)
+        k = min(N_HEADS_PICK, int(S.sum()))
+        sel = np.zeros(S.size, bool)
+        sel[np.argsort(-flat, kind="stable")[:k]] = True
+        sel = sel.reshape(S.shape)
+        r = {"heads": int(sel.sum())}
+        for c in CONDS:
+            r[f"e_{c}"] = float(e[c][sel].mean())
+            if e2 is not None:
+                r[f"e2_{c}"] = float(e2[c][sel].mean())
+                r[f"sink_{c}"] = float(sk[c][sel].mean())
+        out[name] = r
+    return out
+
+
+def run_focus_layers_e(cq: str, root: str, bel: Dict[str, str], neu: Dict[str, str], label: str,
+                       sub: str = "reading_all", out_md: Optional[str] = None) -> dict:
+    """只用 CPU、读已存的数组：按层的类型（全局 / 滑动窗口 / 全部）比较被带偏和守住两组，
+    三种条件下关键区 E 的份额；另给去掉固定高亮图块后的版本。只看中性答对的题。"""
+    from .conflict import _items
+    from .pipeline import _atomic_json
+    from .sources import _signflip_p
+    items = _items(cq)
+    d = os.path.join(root, sub)
+    data = {}
+    for iid in sorted(items):
+        Z = _load_all(d, iid)
+        if Z is not None and iid in bel and neu.get(iid) == "对":
+            data[iid] = Z
+    if not data:
+        raise SourcesCheckFailed(f"{d} 里没有可用的题")
+    # 固定高亮图块：按图块排列分组，用每道题中性回答已记录的全部 token
+    by_grid: Dict[tuple, List[str]] = {}
+    for iid, Z in data.items():
+        g = tuple(int(x) for x in np.asarray(Z["neutral"].get("grid_hw", [0, 0])).ravel()[:2])
+        n = int(Z["neutral"]["dist_sum"].shape[-1])
+        by_grid.setdefault((g, n), []).append(iid)
+    sinks, no_sink = {}, []
+    for key, ids in by_grid.items():
+        if len(ids) < SINK_MIN_ITEMS:
+            no_sink += ids
+            continue
+        full = {i: int((data[i]["neutral"]["count"] == READ_GROUP).sum()) for i in ids}
+        dists = [_norm_img(data[i]["neutral"]["dist_sum"][:max(full[i], 1)].astype(np.float64).sum(0)) for i in ids]
+        s = sink_patches(dists)
+        for i in ids:
+            sinks[i] = s
+    rows = {W: [] for W in READ_WINDOWS}
+    kinds = set()
+    sink_info = {}
+    for iid, Z in data.items():
+        z0 = Z["neutral"]
+        L, H = z0["dist_sum"].shape[1], z0["dist_sum"].shape[2]
+        sl = np.asarray(z0["sliding"], bool) if "sliding" in z0 else np.zeros(L, bool)
+        sets = {"全部层": np.ones((L, H), bool)}
+        if sl.any():
+            sets = {"全局层": np.repeat(~sl[:, None], H, 1), "滑动窗口层": np.repeat(sl[:, None], H, 1), **sets}
+        kinds.update(sets)
+        sk = sinks.get(iid)
+        if sk is not None:
+            sink_info[iid] = {"n": int(sk.shape[1]), "global": float(sk[~sl].sum(1).mean()) if (~sl).any() else None,
+                              "sliding": float(sk[sl].sum(1).mean()) if sl.any() else None}
+        full = min(int((Z[c]["count"] == READ_GROUP).sum()) for c in CONDS)
+        grp = "对" if bel[iid] == "对" else ("偏" if bel[iid] in ("采", "他") else None)
+        if grp is None:
+            continue
+        for W in READ_WINDOWS:
+            G = W // READ_GROUP
+            if full >= G:
+                rows[W].append({"id": iid, "group": grp, "stats": item_e_stats(Z, G, sets, sk)})
+    A = np.array
+    order = [k for k in ("全局层", "滑动窗口层", "全部层") if k in kinds]
+    names = [("偏", "被带偏"), ("对", "守住")]
+    pp = lambda x: f"{x * 100:.1f}%"
+    L = [f"# {label}：被带偏时，关键区 E 的份额（按层的类型分开）", "",
+         "## 数据是什么", "",
+         f"- **回答**：{label} 原模型的已有回答，每题三条：中性；用户说错（问题后加 \"I believe the correct answer is <错误答案>.\"）；"
+         "用户说对（同一句话，换成正确答案）。只读已存的注意力数组，不生成、不回放。",
+         "- **只看中性时答对的题**，按用户说错那条回答的结果分：被带偏 = 答错；守住 = 仍答对。",
+         "- **取哪些 token**：思考的前 W 个 token；三条回答的思考都至少有 W 个 token 的题才计入。",
+         "- **选头**：每题、每种层，按三种条件平均的看图总量选出 96 个头，结果是这 96 个头的平均。",
+         "- **看图分布**：每个头把这 W 个 token 分给图像的注意力加起来，在图像内部归一化（所有图块加起来 = 100%）。",
+         f"- **关键区 E**：每个头在**中性**回答这 W 个 token 里注意力最高的 {int(E_FRAC * 100)}% 图块。E 是用中性回答选的，"
+         "所以中性一列天然偏高；**用户说错和用户说对都没有参与挑选，比较这两列（说错 − 说对）没有这个偏差**。"
+         "用户说错和用户说对的提示一样长，滑动窗口里图像的位置也一样，这个比较也不受提示长度影响。",
+         f"- **固定高亮图块**：同一层里，同样图块排列的所有题（至少 {SINK_MIN_ITEMS} 道）中，中性时平均份额 ≥ {SINK_MULT:g} 倍均匀份额的图块。"
+         "这些位置不管图上画的是什么都被高亮（attention sink）。",
+         "- **去掉固定高亮后的 E**：先把固定高亮图块去掉、其余图块重新归一化，再取中性时最高的 20% 作为 E，看三种条件落在上面的份额。",
+         "- **说错 − 说对**：每题 用户说错的份额 − 用户说对的份额，再对组内平均，单位百分点；p 为每题差值正负号随机翻转 2 万次的检验。",
+         "- **组间 p**：被带偏组和守住组的\"说错 − 说对\"是否不同：两组的题随机重新分组 2 万次。", ""]
+    if sink_info:
+        gl = [v["global"] for v in sink_info.values() if v["global"] is not None]
+        sw = [v["sliding"] for v in sink_info.values() if v["sliding"] is not None]
+        n0 = int(np.median([v["n"] for v in sink_info.values()]))
+        L += [f"固定高亮图块的个数（每层平均，图块总数中位数 {n0}）：全局层 {np.mean(gl):.1f} 个，滑动窗口层 {np.mean(sw):.1f} 个"
+              if gl and sw else f"固定高亮图块的个数：每层平均 {np.mean(gl or sw):.1f} 个（图块总数中位数 {n0}）。", ""]
+    if no_sink:
+        L += [f"同样图块排列的题不足 {SINK_MIN_ITEMS} 道、没有判定固定高亮图块的题：{'、'.join(sorted(no_sink))}。", ""]
+    summary = []
+    res = {"label": label, "rows": {str(W): rows[W] for W in READ_WINDOWS}, "sink_info": sink_info, "no_sink": sorted(no_sink)}
+    for W in READ_WINDOWS:
+        if not rows[W]:
+            continue
+        L += [f"## 前 {W} 个 token", ""]
+        for kind in order:
+            L += [f"### {kind}", "",
+                  "| 组（题数） | E：中性 / 说错 / 说对 | **说错 − 说对**（p） | 去固定高亮的 E：中性 / 说错 / 说对 | **说错 − 说对**（p） | 固定高亮图块的份额：中性 / 说错 / 说对 |",
+                  "|---|---|---|---|---|---|"]
+            diffs = {}
+            for g, gname in names:
+                S = [r for r in rows[W] if r["group"] == g and kind in r["stats"]]
+                if not S:
+                    continue
+                st = lambda key: A([r["stats"][kind][key] for r in S])
+                e = {c: st(f"e_{c}") for c in CONDS}
+                d1 = e["belief"] - e["belief_right"]
+                cells = [f"{gname}（{len(S)}）", " / ".join(pp(e[c].mean()) for c in CONDS),
+                         f"**{d1.mean() * 100:+.2f}**（{_signflip_p(d1):.3f}）"]
+                has2 = all(f"e2_{c}" in r["stats"][kind] for r in S for c in CONDS)
+                if has2:
+                    e2 = {c: st(f"e2_{c}") for c in CONDS}
+                    sk = {c: st(f"sink_{c}") for c in CONDS}
+                    d2 = e2["belief"] - e2["belief_right"]
+                    cells += [" / ".join(pp(e2[c].mean()) for c in CONDS), f"**{d2.mean() * 100:+.2f}**（{_signflip_p(d2):.3f}）",
+                              " / ".join(pp(sk[c].mean()) for c in CONDS)]
+                    diffs[g] = (d1, d2)
+                else:
+                    cells += ["—", "—", "—"]
+                    diffs[g] = (d1, None)
+                L.append("| " + " | ".join(cells) + " |")
+                summary.append((W, kind, gname, len(S), float(d1.mean()), None if not has2 else float(d2.mean())))
+            if "偏" in diffs and "对" in diffs:
+                p1 = perm_test(diffs["偏"][0], diffs["对"][0])
+                txt = f"组间 p（被带偏 vs 守住的\"说错 − 说对\"）：E {p1:.3f}"
+                if diffs["偏"][1] is not None and diffs["对"][1] is not None:
+                    txt += f"；去固定高亮的 E {perm_test(diffs['偏'][1], diffs['对'][1]):.3f}"
+                L += ["", txt]
+            L.append("")
+    L += ["## 一张表看\"说错 − 说对\"（百分点）", "", "| 前 W 个 token | 层 | 组（题数） | E | 去固定高亮的 E |", "|---|---|---|---|---|"]
+    for W, kind, gname, n, a, b in summary:
+        L.append(f"| {W} | {kind} | {gname}（{n}） | {a * 100:+.2f} | {'—' if b is None else f'{b * 100:+.2f}'} |")
+    L += ["", "## 题号", ""]
+    W0 = READ_WINDOWS[0]
+    for g, gname in names:
+        ids = [r["id"] for r in rows[W0] if r["group"] == g]
+        L.append(f"- {gname}（前 {W0} 个 token 时 {len(ids)} 题）：{'、'.join(ids) if ids else '无'}")
+        for W in READ_WINDOWS[1:]:
+            have = {r["id"] for r in rows[W] if r["group"] == g}
+            miss = [i for i in ids if i not in have]
+            if miss and rows[W]:
+                L.append(f"  - 前 {W} 个 token 时不计入（思考不够长或没记录到这么长）：{'、'.join(miss)}")
+    out_md = out_md or os.path.join(root, "reading_layers_e_report.md")
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    _atomic_json(out_md.replace(".md", ".json"), res)
+    print(f"[reading-layers-e] {label}：各长度的题数 {[len(rows[W]) for W in READ_WINDOWS]} → {out_md}", file=sys.stderr)
+    return res

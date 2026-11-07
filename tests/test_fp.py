@@ -2094,3 +2094,29 @@ def test_trigger_region_recorder():
     out = r.result()
     assert out["rows"].tolist() == [0, 2]
     assert np.allclose(out["shares"][0, 0, 0], [0.5, 0.5]) and np.allclose(out["mass"][0, 0], [0.4, 0.4])
+
+
+def test_reading_layers_e(tmp_path):
+    from symexp.fp import reading_groups as rg
+    # 取最高的 20%（只在 keep 里取）
+    P = np.array([[0.5, 0.1, 0.1, 0.1, 0.2]])
+    assert rg._topk_mask(P, 0.2).tolist() == [[True, False, False, False, False]]
+    assert rg._topk_mask(P, 0.25, keep=np.array([False, True, True, True, True])).tolist() == [[False, False, False, False, True]]
+    # 固定高亮图块：各题平均份额 ≥ 5 倍均匀份额
+    n = 20
+    d = np.full((2, 3, n), 1.0 / n); d[:, :, 0] = 0.5; d = d / d.sum(-1, keepdims=True)
+    s = rg.sink_patches([d, d])
+    assert s.shape == (2, n) and s[:, 0].all() and not s[:, 1:].any()
+    # 一道题：中性看图块 1–4，说错时挪到 10–13，说对时不变；固定高亮图块 0 三种条件都占一半
+    G, L, H = 2, 2, 3
+    def mk(focus):
+        D = np.zeros((G, L, H, n)); D[..., 0] = 0.5
+        for j in focus:
+            D[..., j] = 0.5 / len(focus)
+        return {"dist_sum": D, "mass_sum": np.full((G, L, H), 0.3 * 8), "count": np.full(G, 8)}
+    Z = {"neutral": mk([1, 2, 3, 4]), "belief": mk([10, 11, 12, 13]), "belief_right": mk([1, 2, 3, 4])}
+    sets = {"全部层": np.ones((L, H), bool)}
+    st = rg.item_e_stats(Z, G, sets, s)["全部层"]
+    assert abs(st["e2_neutral"] - 1.0) < 1e-9 and abs(st["e2_belief_right"] - 1.0) < 1e-9 and abs(st["e2_belief"]) < 1e-9
+    assert abs(st["sink_belief"] - 0.5) < 1e-9
+    assert st["e_belief"] < st["e_belief_right"]
