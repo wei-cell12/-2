@@ -2199,3 +2199,23 @@ def test_restate_row_recorder():
     p = torch.full((1, 1, 6, 10), 0.1)
     r.accumulate(0, p, None, torch.arange(3, 9))                   # q_pos 3..8 → 输出行 0..5
     assert np.allclose(r.mass[:, 0], 0.2) and np.allclose(r.dist[:, 0], 0.1)
+
+
+def test_read_anchor_pull():
+    from symexp.fp.read_anchor import first_divergence, jsd_rows, pull, restate_end
+    from symexp.fp.rules import XP
+    xp = XP("numpy")
+    n = 20
+    q = np.full(n, 0.5 / (n - 1)); q[0] = 0.5                       # 第 0 块：两边都是固定位置
+    qs = np.full(n, 0.4 / (n - 1)); qs[0] = 0.6; qs[1] += 0.1; qs[2:] -= 0.1 / (n - 2)
+    P, R = (0.2 * q)[None], (0.3 * qs)[None]
+    new, text, info = pull(xp, P, R, 0.5, True)
+    assert abs(new.sum() + text[0, 0] * (1 - 0.2) - 1) < 1e-12        # 整行仍然加起来是 1
+    assert abs(new.sum() - 0.3) < 1e-12                               # 看图总量补到参照的 0.3
+    assert abs(info["q_new"][0, 0] - 0.5) < 1e-12                     # 固定位置保持原份额
+    assert jsd_rows(xp, info["q_new"], info["q_ref"])[0, 0] < jsd_rows(xp, info["q"], info["q_ref"])[0, 0]
+    new2, text2, info2 = pull(xp, R, P, 0.5, False)                   # 主分支看图更多：总量不压；不调分配
+    assert abs(new2.sum() - 0.3) < 1e-12 and abs(text2[0, 0] - 1) < 1e-12 and np.allclose(info2["q_new"], info2["q"])
+    assert abs(jsd_rows(xp, info["q"], info["q"])[0, 0]) < 1e-15
+    assert not restate_end("\n\nThe user", 5) and restate_end("The user says 3:10.\n\n", 6) and not restate_end("a.\n\n", 2)
+    assert first_divergence([1, 2, 3], [1, 2, 4]) == 2 and first_divergence([1, 2], [1, 2, 3]) == 2
