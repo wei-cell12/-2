@@ -191,8 +191,9 @@ class ValleyController:
             return
         P = probs[0, :, 0].index_select(-1, img).float()          # [H, n]
         a = self.acc.setdefault(self.branch, {"share": 0.0, "mass": 0.0, "n": 0})
-        a["share"] = a["share"] + P.sum(0)
-        a["mass"] = a["mass"] + P.sum(-1).mean()
+        dev = self.img_abs.device                                  # 模型分在多张卡上时，各层在不同的卡上：统一累加到一张卡
+        a["share"] = a["share"] + P.sum(0).to(dev)
+        a["mass"] = a["mass"] + P.sum(-1).mean().to(dev)
         a["n"] += 1
 
     # ------------------------------------------------------------ 钩子
@@ -266,19 +267,20 @@ class ValleyController:
         ev = {"step": k, "dH": dH, "H_main": h_main, "H_ref": h_ref, "inject": bool(inject and self.arm != "base"),
               "context": self.tok.decode(self.out[max(0, k - 24):k], skip_special_tokens=False)}
         if ev["inject"]:
+            edev = self.embed.weight.device                             # 词嵌入所在的卡（可能与输出层不同）
             p = lp.exp()
             top = t.topk(p, TOPK)
-            w = top.values / top.values.sum()
-            E = self.embed(top.indices[None])[0].float()                 # [TOPK, d]，第一层的输入空间
+            w = (top.values / top.values.sum()).to(edev)
+            E = self.embed(top.indices[None].to(edev))[0].float()       # [TOPK, d]，第一层的输入空间
             e_hat = (w[:, None] * E).sum(0)
             if self.arm == "lead":
-                v = self.embed(t.tensor([self.vis_ids], device=top.indices.device))[0].float().mean(0)
+                v = self.embed(t.tensor([self.vis_ids], device=edev))[0].float().mean(0)
                 self.pending = mix(e_hat, v, self.lam, align=False)
             else:
                 am, ar = self.acc["main"], self.acc["ref"]
                 qm, qr = am["share"] / am["share"].sum(), ar["share"] / ar["share"].sum()
                 wj = img_weights(self.xp, qm, qr)
-                v = (wj[:, None].to(self.V.device) * self.V).sum(0)
+                v = (wj[:, None].to(self.V.device) * self.V).sum(0)       # wj 在 img_abs 的卡上，V 在第一层的卡上
                 self.pending = mix(e_hat, v.to(e_hat.device), self.lam, align=True)
                 ev["fixed_patches"] = int(((qm >= SINK_MULT / qm.numel()) & (qr >= SINK_MULT / qr.numel())).sum())
                 ev["weight_top5"] = [int(x) for x in t.topk(wj, 5).indices.tolist()]
