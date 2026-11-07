@@ -2173,3 +2173,29 @@ def test_ref_branch_recorder_mask():
     assert torch.allclose(q[..., 3], torch.zeros(1)) and torch.allclose(q.sum(-1), torch.ones(1))
     r.accumulate(0, q, None, torch.arange(3, 5))
     assert np.allclose(r.mass[:, 0], 0.5)
+
+
+def test_restate_ablation_pure():
+    from symexp.fp import restate_ablation as ra
+    pieces = ["<think>", "\n", "The", " user", " says", " 12", ":", "35", ".", "\n\n", "Looking", " at", "\n\n", "x"]
+    assert ra.find_restatement(pieces, 1, "12:35:00") == 10        # 第一个空行在用户时间之后
+    assert ra.find_restatement(["a", "\n\n", "12:35", "\n\n", "b"], 0, "12:35:00") == 4   # 时间之前的空行不算
+    assert ra.find_restatement(pieces, 1, "3:10:00") is None
+    assert ra.find_restatement(pieces, 1, "12:35:00", max_tok=5) is None
+    u = np.ones(4) / 4
+    t = np.array([0.7, 0.1, 0.1, 0.1])
+    s = {"A": {"dist": t, "mass": 0.2, "hands": 0.1}, "B": {"dist": t, "mass": 0.2, "hands": 0.1},
+         "C": {"dist": u, "mass": 0.3, "hands": 0.25}, "D": {"dist": u, "mass": 0.3, "hands": 0.25}}
+    ef = ra.effects(s)                                             # 只有复述段起作用
+    assert ef["prompt_effect_jsd"] == 0 and ef["restate_effect_jsd"] > 0
+    assert abs(ef["restate_effect_mass"] + 0.1) < 1e-12 and ef["prompt_effect_mass"] == 0
+    assert abs(ef["restate_effect_hands"] + 0.15) < 1e-12 and ef["jsd_to_D"]["D"] == 0
+
+
+def test_restate_row_recorder():
+    torch = pytest.importorskip("torch")
+    from symexp.fp.restate_ablation import RowRecorder
+    r = RowRecorder(torch, 2, 2, 4, torch.tensor([0, 1]), [0])     # 记录输出行 2、3（输入 4 个 token）
+    p = torch.full((1, 1, 6, 10), 0.1)
+    r.accumulate(0, p, None, torch.arange(3, 9))                   # q_pos 3..8 → 输出行 0..5
+    assert np.allclose(r.mass[:, 0], 0.2) and np.allclose(r.dist[:, 0], 0.1)

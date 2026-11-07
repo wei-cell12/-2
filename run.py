@@ -216,6 +216,13 @@ def main():
     frb.add_argument("--ids", nargs="+", required=True)
     frb.add_argument("--image-dirs", nargs="*", default=None)
     frb.add_argument("--label", default="")
+    frs = sub.add_parser("fp-restate", help="ClockQA 试跑：读图区域的偏移来自提示里用户那句话，还是思考开头的复述（2×2 回放）")
+    frs.add_argument("--root", required=True)
+    frs.add_argument("--entropy-dir", required=True)
+    frs.add_argument("--model-key", required=True, choices=["qwen38", "gemma4"])
+    frs.add_argument("--ids", nargs="+", required=True)
+    frs.add_argument("--image-dirs", nargs="*", default=None)
+    frs.add_argument("--label", default="")
     fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM、S2VA")
     fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run", "yn-export", "yn-summary"])
     fm2.add_argument("--src-cq", default=None, help="setup：原 ClockQA 目录（读 items.jsonl 和图像）")
@@ -226,7 +233,7 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb):
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -317,6 +324,9 @@ def main():
                     fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed, a.arms)
                 else:
                     fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed, a.seeds)
+        elif a.cmd == "fp-restate":
+            from symexp.fp import restate_ablation as fp_ra
+            fp_ra.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.ids, a.image_dirs, a.label)
         elif a.cmd == "fp-refbranch":
             from symexp.fp import ref_branch as fp_rb
             fp_rb.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.ids, a.image_dirs, a.label)
