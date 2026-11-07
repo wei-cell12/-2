@@ -2046,6 +2046,9 @@ def test_trigger_regions_pure(tmp_path):
     geom = (50.0, 50.0, 40.0, 100, 100)
     m = tr.region_masks(geom, (20, 20), "3:00:00", "9:00:00")
     assert m["true"].any() and m["claim"].any() and not (m["true"] & m["claim"]).any()
+    # 时针、分针对调（正确 7:00:00、用户 12:35:00）：短针只画到 0.6 个半径，两块区域仍分得开；不再加 :00 秒针方向
+    m = tr.region_masks((100.0, 100.0, 90.0, 200, 200), (40, 40), "7:00:00", "12:35:00")
+    assert m["true"].sum() > 5 and m["claim"].sum() > 5
     # 选头与窗口平均
     mass = [np.array([[[0.9, 0.1], [0.5, 0.2]]] * 4), np.array([[[0.8, 0.1], [0.6, 0.3]]] * 4)]
     h = tr.pick_heads(mass, frac=0.5)
