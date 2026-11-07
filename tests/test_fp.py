@@ -2152,3 +2152,24 @@ def test_sink_check_categories(tmp_path):
     out = rg.run_sink_check(str(cq), str(root), "测试")
     assert out["items"] == 8 and abs(out["kinds"]["滑动窗口层"]["count"]["图像边缘"] - 1.0) < 1e-9
     assert (root / "sink_check" / "CQ-000_sinks.png").exists()
+
+
+def test_ref_branch_pure():
+    from symexp.fp import ref_branch as rb
+    dH = [0.1, -0.2, -1.5, -0.3, 0.0, -0.4, 0.2, -1.1]
+    assert rb.copied_runs(dH, 8) == [1, 2, 3, 7]          # 含 ≤ −1 的连续负值段；第 5 位那段没有深谷，不屏蔽
+    assert rb.copied_runs(dH, 3) == [1, 2]
+    d = lambda v: {"dist": np.array(v, float), "mass": 0.3, "hands": 0.1}
+    c = rb.compare({"main": d([0.0, 0.0, 0.5, 0.5, 0, 0, 0, 0, 0, 0]), "neutral": d([0.5, 0.5, 0, 0, 0, 0, 0, 0, 0, 0])})
+    assert abs(c["neutral"]["E"] - 1.0) < 1e-9 and c["main"]["E"] < 1e-9 and abs(c["main"]["jsd_to_neutral"] - np.log(2)) < 1e-9
+
+
+def test_ref_branch_recorder_mask():
+    torch = pytest.importorskip("torch")
+    from symexp.fp.ref_branch import BranchRecorder
+    r = BranchRecorder(torch, 2, 4, torch.tensor([0, 1]), [0], mask_keys=[3])
+    p = torch.full((1, 1, 2, 5), 0.2)
+    q = r.modify(0, p, torch.arange(3, 5))
+    assert torch.allclose(q[..., 3], torch.zeros(1)) and torch.allclose(q.sum(-1), torch.ones(1))
+    r.accumulate(0, q, None, torch.arange(3, 5))
+    assert np.allclose(r.mass[:, 0], 0.5)

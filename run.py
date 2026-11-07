@@ -209,6 +209,13 @@ def main():
     ftr.add_argument("--ids", nargs="*", default=None, help="replay：只做这些题（试跑用），如 CQ-003 CQ-009")
     ftr.add_argument("--label", default=None, help="analyze：报告里写的模型与数据集")
     ftr.add_argument("--out", default=None, help="analyze：报告 .md（默认 root/trigger_regions_report.md）")
+    frb = sub.add_parser("fp-refbranch", help="ClockQA 试跑：无压力分支的看图注意力能不能当参照（四种分支对比，只回放读图阶段）")
+    frb.add_argument("--root", required=True)
+    frb.add_argument("--entropy-dir", required=True)
+    frb.add_argument("--model-key", required=True, choices=["qwen38", "gemma4"])
+    frb.add_argument("--ids", nargs="+", required=True)
+    frb.add_argument("--image-dirs", nargs="*", default=None)
+    frb.add_argument("--label", default="")
     fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM、S2VA")
     fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run", "yn-export", "yn-summary"])
     fm2.add_argument("--src-cq", default=None, help="setup：原 ClockQA 目录（读 items.jsonl 和图像）")
@@ -219,7 +226,7 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr):
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -310,6 +317,9 @@ def main():
                     fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed, a.arms)
                 else:
                     fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed, a.seeds)
+        elif a.cmd == "fp-refbranch":
+            from symexp.fp import ref_branch as fp_rb
+            fp_rb.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.ids, a.image_dirs, a.label)
         elif a.cmd == "fp-trigger":
             from symexp.fp import trigger_regions as fp_tr
             if a.phase == "replay":
