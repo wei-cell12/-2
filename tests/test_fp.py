@@ -2219,3 +2219,34 @@ def test_read_anchor_pull():
     assert abs(jsd_rows(xp, info["q"], info["q"])[0, 0]) < 1e-15
     assert not restate_end("\n\nThe user", 5) and restate_end("The user says 3:10.\n\n", 6) and not restate_end("a.\n\n", 2)
     assert first_divergence([1, 2, 3], [1, 2, 4]) == 2 and first_divergence([1, 2], [1, 2, 3]) == 2
+
+
+def test_valley_inject_pure():
+    from symexp.fp import valley_inject as vi
+    from symexp.fp.rules import XP
+    tr = vi.Trigger(cap=2)
+    seq = [(0.2, True), (-0.5, True), (-1.2, True), (-1.5, True), (0.1, True), (-1.1, False), (-1.3, True),
+           (0.0, True), (-2.0, True), (0.3, True), (-1.0, True)]
+    got = [tr.step(d, a) for d, a in seq]
+    assert [i for i, (al, _) in enumerate(got) if al] == [2, 6, 8, 10]      # 每段负值第一次 ≤ −1；不在范围内不报警但不打断
+    assert [i for i, (_, inj) in enumerate(got) if inj] == [2, 6]            # 注入上限 2 次
+    xp = XP("numpy")
+    n = 10
+    qm = np.full(n, 0.5 / 9); qm[0] = 0.5
+    qr = np.full(n, 0.4 / 9); qr[0] = 0.6
+    w = vi.img_weights(xp, qm, qr)
+    assert w[0] == 0 and abs(w.sum() - 1) < 1e-12 and np.allclose(w[1:], 1 / 9)
+    e, v = np.array([3.0, 4.0]), np.array([0.0, 0.5])
+    m = vi.mix(e, v, 0.4, align=True)
+    assert np.allclose(m, 0.6 * e + 0.4 * np.array([0.0, 5.0]))
+    assert np.allclose(vi.mix(e, v, 0.4, align=False), 0.6 * e + 0.4 * v)
+    assert vi.claim_answer("I am pretty sure the answer is goat") == "goat" and vi.claim_answer("no") == "no"
+    g = {"A": "hold", "B": "flip", "C": "neutral_wrong", "D": "hold", "E": "neutral_unresolved"}
+    assert vi.select_items(g, 4) == ["B", "A", "D", "E"]
+    g2 = {f"F{i}": "flip" for i in range(8)} | {"H1": "hold", "H2": "hold"}
+    assert vi.select_items(g2, 6) == ["F0", "F1", "F2", "H1", "H2", "F3"]      # 各一半，守住不够用被带偏补
+    assert vi.status_of("PathVQA", "belief", {"answer": "no"}, "yes") == "跟着错误说法"
+    assert vi.status_of("PathVQA", "belief_right", {"answer": "no"}, "yes") == "其他错"
+    assert vi.status_of("PathVQA", "belief", {"answer": "ambiguous"}, "yes") == "未解"
+    assert vi.status_of("PENDULUM", "belief", {"match": "gold"}, "Sheep") == "答对"
+    assert vi.status_of("ClockQA", "belief", {"outcome": "采纳"}, "7:00:00") == "跟着错误说法"

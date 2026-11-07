@@ -223,6 +223,15 @@ def main():
     frs.add_argument("--ids", nargs="+", required=True)
     frs.add_argument("--image-dirs", nargs="*", default=None)
     frs.add_argument("--label", default="")
+    fvl = sub.add_parser("fp-valley", help="熵差谷注入视觉信息（LEAD 风格）：base / lead / img，三个数据集各 20 题")
+    fvl.add_argument("--phase", required=True, choices=["run", "judge-export", "match-export", "summary"])
+    fvl.add_argument("--root", required=True)
+    fvl.add_argument("--entropy-dir", default=None)
+    fvl.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"])
+    fvl.add_argument("--ids", nargs="*", default=None, help="run：只做这些题（试跑用）")
+    fvl.add_argument("--image-dirs", nargs="*", default=None)
+    fvl.add_argument("--lam", type=float, default=0.4)
+    fvl.add_argument("--label", default="")
     fa1 = sub.add_parser("fp-anchor1", help="锚点一试跑：读图阶段把看图注意力往参照分支（去掉用户那句话和复述段）拉（ClockQA 几题）")
     fa1.add_argument("--root", required=True)
     fa1.add_argument("--entropy-dir", default=None)
@@ -243,7 +252,7 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1):
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -334,6 +343,19 @@ def main():
                     fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed, a.arms)
                 else:
                     fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed, a.seeds)
+        elif a.cmd == "fp-valley":
+            from symexp.fp import valley_inject as fp_vl
+            if a.phase == "run":
+                if not (a.entropy_dir and a.model_key):
+                    raise SystemExit("fp-valley run 需要 --entropy-dir、--model-key")
+                fp_vl.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.image_dirs,
+                          a.shard, seed=a.seed, lam=a.lam, only_ids=a.ids)
+            elif a.phase == "judge-export":
+                fp_vl.judge_export(a.root)
+            elif a.phase == "match-export":
+                fp_vl.match_export(a.root)
+            else:
+                fp_vl.summary(a.root, a.label)
         elif a.cmd == "fp-anchor1":
             from symexp.fp import read_anchor as fp_a1
             if a.report_only:
