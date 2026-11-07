@@ -2061,8 +2061,13 @@ def test_trigger_regions_pure(tmp_path):
                       "true": {"before": 0.2, "at": 0.2, "after": 0.2 + a}, "claim": {"before": 0.1, "at": 0.1, "after": 0.1},
                       "mass": {"before": 0.3, "at": 0.3, "after": 0.3}}
     s = tr.summarize([e("CQ-1", 0.1), e("CQ-1", 0.3), e("CQ-2", 0.0)])
-    c = s["belief|flip|later"]
+    c = s["ClockQA|belief|flip|later"]
     assert c["events"] == 3 and c["items"] == 2 and abs(c["true"]["after_minus_before"] - 0.1) < 1e-9
+    # 前焦点：前窗口最集中的 20% 图块；后窗口换了位置 → 比例下降、JSD 变大
+    dist = np.zeros((7, 10)); dist[:3, :2] = 0.5; dist[3:, 5:7] = 0.5
+    fv = tr.focus_values(dist, {r: r for r in range(7)}, t=3, pre=3, post=3, frac=0.2)
+    assert abs(fv["focus"]["before"] - 1.0) < 1e-9 and fv["focus"]["after"] < 1e-9
+    assert abs(fv["shift"]["after"] - np.log(2)) < 1e-6
     # 读熵差 CSV：Gemma 第 0 行是特殊 token
     p = tmp_path / "x.csv"
     p.write_text("step,prefix_output_tokens,phase,forced_by_original_budget,token_piece,delta_H\n"

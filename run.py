@@ -199,9 +199,10 @@ def main():
     fsr.add_argument("--out", default=None, help="analyze：报告 .md（默认 root/sources_report.md）")
     fsr.add_argument("--yn-judgments", default=None, help="reading-groups / reading-focus（PathVQA）：是/否判读的 judgments.json")
     fsr.add_argument("--label", default=None, help="reading-focus：报告里写的模型与数据集，如 \"Qwen3.8-27B · ClockQA\"")
-    ftr = sub.add_parser("fp-trigger", help="ClockQA：熵差报警前后，看图注意力落在真指针区还是用户指针区（replay 用 GPU 只读回放，analyze 用 CPU）")
+    ftr = sub.add_parser("fp-trigger", help="熵差报警前后，看图注意力落在哪里（ClockQA 另看真指针区 / 用户指针区；replay 用 GPU 只读回放，analyze 用 CPU）")
     ftr.add_argument("--phase", required=True, choices=["replay", "analyze"])
-    ftr.add_argument("--cq", default=None, help="replay：这个模型的 ClockQA 目录（items.jsonl、obs/records）")
+    ftr.add_argument("--datasets", nargs="*", default=None, help="replay：只做这些数据集（ClockQA PathVQA PENDULUM，默认全部）")
+    ftr.add_argument("--image-dirs", nargs="*", default=None, help="replay：熵差实验记录的图像路径不存在时，按 SHA 在这些目录里找图像")
     ftr.add_argument("--root", required=True, help="结果目录")
     ftr.add_argument("--entropy-dir", default=None, help="replay：熵差实验目录（仓库里的 results/shared_prefix_entropy_20261103）")
     ftr.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"], help="replay：熵差实验里的模型目录名")
@@ -312,10 +313,10 @@ def main():
         elif a.cmd == "fp-trigger":
             from symexp.fp import trigger_regions as fp_tr
             if a.phase == "replay":
-                if not (a.cq and a.entropy_dir and a.model_key):
-                    raise SystemExit("--phase replay 需要 --cq、--entropy-dir、--model-key")
-                fp_tr.run_replay(Config.load(a.config, _overrides(a.set)), a.cq, a.root, a.entropy_dir, a.model_key,
-                                 a.ids, a.shard)
+                if not (a.entropy_dir and a.model_key):
+                    raise SystemExit("--phase replay 需要 --entropy-dir、--model-key")
+                fp_tr.run_replay(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key,
+                                 a.datasets, a.ids, a.shard, a.image_dirs)
             else:
                 if not a.label:
                     raise SystemExit("--phase analyze 需要 --label（模型与数据集）")
