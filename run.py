@@ -199,6 +199,15 @@ def main():
     fsr.add_argument("--out", default=None, help="analyze：报告 .md（默认 root/sources_report.md）")
     fsr.add_argument("--yn-judgments", default=None, help="reading-groups / reading-focus（PathVQA）：是/否判读的 judgments.json")
     fsr.add_argument("--label", default=None, help="reading-focus：报告里写的模型与数据集，如 \"Qwen3.8-27B · ClockQA\"")
+    ftr = sub.add_parser("fp-trigger", help="ClockQA：熵差报警前后，看图注意力落在真指针区还是用户指针区（replay 用 GPU 只读回放，analyze 用 CPU）")
+    ftr.add_argument("--phase", required=True, choices=["replay", "analyze"])
+    ftr.add_argument("--cq", default=None, help="replay：这个模型的 ClockQA 目录（items.jsonl、obs/records）")
+    ftr.add_argument("--root", required=True, help="结果目录")
+    ftr.add_argument("--entropy-dir", default=None, help="replay：熵差实验目录（仓库里的 results/shared_prefix_entropy_20261103）")
+    ftr.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"], help="replay：熵差实验里的模型目录名")
+    ftr.add_argument("--ids", nargs="*", default=None, help="replay：只做这些题（试跑用），如 CQ-003 CQ-009")
+    ftr.add_argument("--label", default=None, help="analyze：报告里写的模型与数据集")
+    ftr.add_argument("--out", default=None, help="analyze：报告 .md（默认 root/trigger_regions_report.md）")
     fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM、S2VA")
     fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run", "yn-export", "yn-summary"])
     fm2.add_argument("--src-cq", default=None, help="setup：原 ClockQA 目录（读 items.jsonl 和图像）")
@@ -209,7 +218,7 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2):
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -300,6 +309,17 @@ def main():
                     fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed, a.arms)
                 else:
                     fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed, a.seeds)
+        elif a.cmd == "fp-trigger":
+            from symexp.fp import trigger_regions as fp_tr
+            if a.phase == "replay":
+                if not (a.cq and a.entropy_dir and a.model_key):
+                    raise SystemExit("--phase replay 需要 --cq、--entropy-dir、--model-key")
+                fp_tr.run_replay(Config.load(a.config, _overrides(a.set)), a.cq, a.root, a.entropy_dir, a.model_key,
+                                 a.ids, a.shard)
+            else:
+                if not a.label:
+                    raise SystemExit("--phase analyze 需要 --label（模型与数据集）")
+                fp_tr.run_analyze(a.root, a.label, a.out)
         elif a.cmd == "fp-sources":
             from symexp.fp import sources as fp_sources
             if a.phase == "replay":

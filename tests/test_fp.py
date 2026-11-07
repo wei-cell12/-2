@@ -2020,3 +2020,69 @@ def test_preread_extend_inputs():
     assert out["attention_mask"].tolist() == [[1, 1, 1, 1, 1]]
     assert out["mm_token_type_ids"].tolist() == [[0, 1, 0, 0, 0]]
     assert out["pixel_values"].shape == (4, 5)
+
+
+def test_trigger_regions_pure(tmp_path):
+    from symexp.fp import trigger_regions as tr
+    # 每段负值第一次 ≤ −1 报警一次；ok=False 的位置不报警
+    dH = [0.1, -0.2, -1.3, -2.0, -0.5, 0.3, -1.5, 0.2, -0.1, -1.1]
+    ok = [True] * 10
+    assert tr.online_triggers(dH, ok) == [2, 6, 9]
+    ok2 = list(ok); ok2[2] = False
+    assert tr.online_triggers(dH, ok2) == [3, 6, 9]
+    # 事件：开头之后的报警、开头里最后一次报警（前窗口取能取到的）、普通位置离报警足够远
+    n = 800
+    d = [0.0] * n
+    for t in (10, 20, 150):
+        d[t] = -1.5
+    ev = tr.pick_events(d, [True] * n, cutoff=64, n_think=n, key="CQ-000__belief", pre=32, post=32, n_ctrl=3)
+    assert ("later", 150, 32) in ev and ("opening", 20, 20) in ev
+    ctrl = [t for k, t, _ in ev if k == "control"]
+    assert len(ctrl) == 3 and all(abs(t - x) > 64 for t in ctrl for x in (10, 20, 150))
+    assert ev == tr.pick_events(d, [True] * n, 64, n, "CQ-000__belief", 32, 32, 3)        # 固定种子，可复现
+    rows = tr.window_rows([("later", 150, 32), ("opening", 20, 20)], post=32)
+    assert rows[0] == 0 and 182 in rows and 183 not in rows
+    # 区域：真指针区与用户指针区去掉重叠
+    geom = (50.0, 50.0, 40.0, 100, 100)
+    m = tr.region_masks(geom, (20, 20), "3:00:00", "9:00:00")
+    assert m["true"].any() and m["claim"].any() and not (m["true"] & m["claim"]).any()
+    # 选头与窗口平均
+    mass = [np.array([[[0.9, 0.1], [0.5, 0.2]]] * 4), np.array([[[0.8, 0.1], [0.6, 0.3]]] * 4)]
+    h = tr.pick_heads(mass, frac=0.5)
+    assert h.tolist() == [[True, False], [True, False]]
+    N = 7
+    shares = np.zeros((N, 2, 2, 2)); shares[:3, :, :, 0] = 0.2; shares[3:, :, :, 0] = 0.5
+    shares[:, :, :, 1] = 0.1; shares[3, :, :, 1] = 0.4
+    v = tr.event_values(shares, np.full((N, 2, 2), 0.3), {r: r for r in range(N)}, h, t=3, pre=3, post=3)
+    assert abs(v["true"]["before"] - 0.2) < 1e-9 and abs(v["true"]["after"] - 0.5) < 1e-9
+    assert abs(v["claim"]["at"] - 0.4) < 1e-9 and abs(v["mass"]["at"] - 0.3) < 1e-9
+    # 汇总：按题平均后的 后 − 前
+    e = lambda i, a: {"id": i, "condition": "belief", "group": "flip", "kind": "later",
+                      "true": {"before": 0.2, "at": 0.2, "after": 0.2 + a}, "claim": {"before": 0.1, "at": 0.1, "after": 0.1},
+                      "mass": {"before": 0.3, "at": 0.3, "after": 0.3}}
+    s = tr.summarize([e("CQ-1", 0.1), e("CQ-1", 0.3), e("CQ-2", 0.0)])
+    c = s["belief|flip|later"]
+    assert c["events"] == 3 and c["items"] == 2 and abs(c["true"]["after_minus_before"] - 0.1) < 1e-9
+    # 读熵差 CSV：Gemma 第 0 行是特殊 token
+    p = tmp_path / "x.csv"
+    p.write_text("step,prefix_output_tokens,phase,forced_by_original_budget,token_piece,delta_H\n"
+                 "1,0,special,False,<|channel>,0.0\n2,1,think,False,thought,0.0\n3,2,think,False,a,-1.2\n"
+                 "4,3,special,False,<channel|>,0.0\n5,4,answer,False,b,0.0\n", encoding="utf-8")
+    dH, ok, toks, nt = tr.read_steps(str(p))
+    assert nt == 3 and ok == [False, True, True, False, False] and toks[2] == "a"
+
+
+def test_trigger_region_recorder():
+    torch = pytest.importorskip("torch")
+    from symexp.fp.trigger_regions import RegionRecorder
+    n_in, img = 6, torch.tensor([1, 2, 3])
+    masks = np.array([[1, 0, 0], [0, 1, 1]], bool)
+    r = RegionRecorder(torch, [0, 2], n_in, img, masks, layers=[0])
+    kL = n_in + 3
+    p = torch.zeros(1, 2, 4, kL)
+    q_pos = torch.arange(kL - 4, kL)                    # 查询 5..8 → 输出行 0..3
+    p[0, :, :, 1], p[0, :, :, 2], p[0, :, :, 3], p[0, :, :, 0] = 0.2, 0.1, 0.1, 0.6
+    r.accumulate(0, p, None, q_pos)
+    out = r.result()
+    assert out["rows"].tolist() == [0, 2]
+    assert np.allclose(out["shares"][0, 0, 0], [0.5, 0.5]) and np.allclose(out["mass"][0, 0], [0.4, 0.4])
