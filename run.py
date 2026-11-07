@@ -191,7 +191,7 @@ def main():
     fcm.add_argument("--seeds", nargs="*", type=int, default=None, help="run：每个方法跑哪些种子（默认只跑 --seed）")
     fcm.add_argument("--out", default=None, help="summary：输出 JSON")
     fsr = sub.add_parser("fp-sources", help="ClockQA：读时间时注意力落在图像还是用户的话上（replay 用 GPU 只读回放，analyze 用 CPU）")
-    fsr.add_argument("--phase", required=True, choices=["replay", "analyze", "tokens", "prompt", "prompt-analyze", "prompt-heads", "cut", "cut-analyze", "reading", "reading-analyze", "reading-claim", "reading-gen", "reading-groups", "sinks", "sinks-analyze", "reading-split", "reading-scores", "reading-bands", "reading-focus", "reading-gen-all", "reading-layers", "stage-export", "stage-summary", "attrib", "attrib-summary", "reading-layers-e"])
+    fsr.add_argument("--phase", required=True, choices=["replay", "analyze", "tokens", "prompt", "prompt-analyze", "prompt-heads", "cut", "cut-analyze", "reading", "reading-analyze", "reading-claim", "reading-gen", "reading-groups", "sinks", "sinks-analyze", "reading-split", "reading-scores", "reading-bands", "reading-focus", "reading-gen-all", "reading-layers", "stage-export", "stage-summary", "attrib", "attrib-summary", "reading-layers-e", "sink-check"])
     fsr.add_argument("--cq", required=True, help="ClockQA 目录（读题目、原模型记录、中性注意力）")
     fsr.add_argument("--root", required=True, help="新目录（结果存这里）")
     fsr.add_argument("--conds", nargs="*", default=["neutral", "belief", "belief_right"])
@@ -381,6 +381,12 @@ def main():
             elif a.phase == "reading-gen-all":
                 from symexp.fp import reading_groups as fp_rg
                 fp_rg.run_reading_gen_all(Config.load(a.config, _overrides(a.set)), a.cq, a.root, a.conds, a.shard)
+            elif a.phase == "sink-check":
+                from symexp.fp import reading_groups as fp_rg
+                if not a.label:
+                    raise SystemExit("--phase sink-check 需要 --label")
+                sub = "reading_all" if os.path.isdir(os.path.join(a.root, "reading_all")) else "reading"
+                fp_rg.run_sink_check(a.cq, a.root, a.label, sub, a.out)
             elif a.phase == "reading-layers-e":
                 from symexp.fp import reading_groups as fp_rg
                 if not (a.judgments and a.label):

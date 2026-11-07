@@ -1298,3 +1298,164 @@ def run_focus_layers_e(cq: str, root: str, bel: Dict[str, str], neu: Dict[str, s
     _atomic_json(out_md.replace(".md", ".json"), res)
     print(f"[reading-layers-e] {label}：各长度的题数 {[len(rows[W]) for W in READ_WINDOWS]} → {out_md}", file=sys.stderr)
     return res
+
+
+# ---------------------------------------------------------------- 核实：固定高亮图块在钟面上的什么位置
+SINK_CATS = ["图像边缘", "钟表圆心", "指针", "钟面其他", "钟面外"]
+
+
+def patch_categories(geom, grid_hw, gold: str) -> np.ndarray:
+    """每个图块的位置类别（下标对应 SINK_CATS）：
+    图像边缘 = 最外一圈图块；钟表圆心 = 离圆心不到 0.15 个半径；指针 = 正确时间两根针所在的图块
+    （分针 0.15–1.05 个半径、时针 0.15–0.6 个半径，方向 ±15°）；钟面其他 = 钟面内其余图块；钟面外 = 其余。按这个顺序归类。"""
+    from .trigger_regions import hand_shape
+    cx, cy, R, W, H = geom
+    gh, gw = int(grid_hw[0]), int(grid_hw[1])
+    i, j = np.divmod(np.arange(gh * gw), gw)
+    dx, dy = (j + 0.5) / gw * W - cx, (i + 0.5) / gh * H - cy
+    r = np.hypot(dx, dy) / R
+    hands = hand_shape(geom, grid_hw, gold)
+    cat = np.full(gh * gw, 4)
+    cat[(r >= 0.15) & (r <= 1.05)] = 3
+    cat[hands] = 2
+    cat[r < 0.15] = 1
+    cat[(i == 0) | (i == gh - 1) | (j == 0) | (j == gw - 1)] = 0
+    return cat
+
+
+def _grid_of(cq: str, iid: str, z0: dict) -> Optional[np.ndarray]:
+    if "grid_hw" in z0:
+        return np.asarray(z0["grid_hw"]).ravel()[:2]
+    rec = json.load(open(os.path.join(cq, "obs", "records", f"{iid}__neutral.json"), encoding="utf-8"))
+    npz = rec.get("npz") or os.path.join(cq, "obs", "attn", f"{iid}__neutral.npz")
+    if not os.path.exists(npz):
+        return None
+    with np.load(npz) as z:
+        return np.asarray(z["grid_hw"]).ravel()[:2] if "grid_hw" in z.files else None
+
+
+def run_sink_check(cq: str, root: str, label: str, sub: str = "reading_all", out_md: Optional[str] = None,
+                   n_pictures: int = 3) -> dict:
+    """只用 CPU、读已存数组：固定高亮图块（与 run_focus_layers_e 同一个定法）落在钟面的什么位置，
+    和"随便挑同样多图块"相比是否更多落在钟表圆心或指针上。按层的类型分开。用全部中性答对的题。"""
+    from .conflict import _items
+    from .pipeline import _atomic_json
+    from .sources import dial_geometry
+    items = _items(cq)
+    d = os.path.join(root, sub)
+    data = {}
+    for iid in sorted(items):
+        p = os.path.join(d, f"{iid}__neutral.npz")
+        if os.path.exists(p):
+            with np.load(p) as z:
+                data[iid] = {k: z[k] for k in z.files}
+    if not data:
+        raise SourcesCheckFailed(f"{d} 里没有中性回答的数组")
+    by_grid: Dict[tuple, List[str]] = {}
+    for iid, z0 in data.items():
+        g = tuple(int(x) for x in np.asarray(z0.get("grid_hw", [0, 0])).ravel()[:2])
+        by_grid.setdefault((g, int(z0["dist_sum"].shape[-1])), []).append(iid)
+    out = {"label": label, "kinds": {}, "items": 0, "skipped": []}
+    pics_dir = os.path.join(root, "sink_check")
+    os.makedirs(pics_dir, exist_ok=True)
+    acc = {}                           # 层类型 → {"n_sink": [], "count": [5], "chance": [5], "mass": [5], "mass_total": []}
+    examples = []
+    for key, ids in by_grid.items():
+        if len(ids) < SINK_MIN_ITEMS:
+            out["skipped"] += ids
+            continue
+        dists = {}
+        for i in ids:
+            z0 = data[i]
+            full = max(int((z0["count"] == READ_GROUP).sum()), 1)
+            dists[i] = _norm_img(z0["dist_sum"][:full].astype(np.float64).sum(0))      # [L, H, n]
+        sink = sink_patches(list(dists.values()))                                     # [L, n]
+        for i in ids:
+            z0 = data[i]
+            L = z0["dist_sum"].shape[1]
+            sl = np.asarray(z0["sliding"], bool) if "sliding" in z0 else np.zeros(L, bool)
+            grid = _grid_of(cq, i, z0)
+            if grid is None or int(np.prod(grid)) != z0["dist_sum"].shape[-1]:
+                out["skipped"].append(i)
+                continue
+            geom = dial_geometry(items[i]["image"])
+            cat = patch_categories(geom, grid, items[i]["gold"])
+            chance = np.bincount(cat, minlength=len(SINK_CATS)) / len(cat)
+            kinds = {"全局层": ~sl, "滑动窗口层": sl} if sl.any() else {"全部层": np.ones(L, bool)}
+            for kind, lm in kinds.items():
+                if not lm.any():
+                    continue
+                a = acc.setdefault(kind, {"n_sink": [], "count": [], "chance": [], "mass": [], "mass_total": []})
+                s = sink[lm]                                                           # [l, n]
+                pm = dists[i][lm].mean(1)                                              # [l, n]：对头平均
+                cnt = np.array([np.bincount(cat[row], minlength=len(SINK_CATS)) for row in s]).sum(0)
+                a["n_sink"].append(float(s.sum(1).mean()))
+                a["count"].append(cnt / max(cnt.sum(), 1))
+                a["chance"].append(chance)
+                ms = np.array([[(pm[k] * (s[k] & (cat == c))).sum() for c in range(len(SINK_CATS))] for k in range(len(s))]).mean(0)
+                a["mass"].append(ms / max(ms.sum(), 1e-12))
+                a["mass_total"].append(float((pm * s).sum(1).mean()))
+            out["items"] += 1
+            if len(examples) < n_pictures:
+                examples.append((i, grid, sink, sl, cat))
+    if not acc:
+        raise SourcesCheckFailed("没有能判定固定高亮图块的题（同样图块排列的题都不足 5 道）")
+    pct = lambda x: f"{x * 100:.1f}%"
+    L = [f"# {label}：固定高亮图块落在钟面的什么位置", "",
+         "## 数据是什么", "",
+         f"- **回答**：{label} 原模型中性回答的已存注意力数组（与上次关键区 E 分析是同一批数组），只用 CPU，不生成、不回放。",
+         f"- **固定高亮图块**（与上次同一个定法）：同一层里，同样图块排列的所有题（至少 {SINK_MIN_ITEMS} 道）中，"
+         f"中性时平均份额 ≥ {SINK_MULT:g} 倍均匀份额的图块。",
+         "- **位置类别**（每道题按自己的钟面算，按下面顺序归类）：",
+         "  - 图像边缘：图片最外一圈的图块；",
+         "  - 钟表圆心：离钟表圆心不到 0.15 个半径；",
+         "  - 指针：正确时间两根针所在的图块（分针方向 ±15°、0.15–1.05 个半径；时针方向 ±15°、0.15–0.6 个半径）；",
+         "  - 钟面其他：钟面内的其余图块；",
+         "  - 钟面外：其余（图片里钟面以外、但不在最外一圈的图块）。",
+         "- **随便挑的比例**：一道题全部图块里，各类别占多少。固定高亮图块某一类的比例明显高于这个数，说明它们偏向这一类位置。",
+         "- **注意力的比例**：固定高亮图块分到的注意力里，各类别占多少（对头平均）。", ""]
+    for kind, a in acc.items():
+        cnt, ch, ms = np.mean(a["count"], 0), np.mean(a["chance"], 0), np.mean(a["mass"], 0)
+        L += [f"## {kind}", "",
+              f"每层平均 {np.mean(a['n_sink']):.1f} 个固定高亮图块；它们占这类层看图注意力的 {pct(np.mean(a['mass_total']))}（{len(a['count'])} 道题平均）。", "",
+              "| 位置 | 固定高亮图块里占多少 | 随便挑时占多少 | 固定高亮图块分到的注意力里占多少 |", "|---|---:|---:|---:|"]
+        for c, name in enumerate(SINK_CATS):
+            L.append(f"| {name} | {pct(cnt[c])} | {pct(ch[c])} | {pct(ms[c])} |")
+        L.append("")
+        out["kinds"][kind] = {"n_sink_per_layer": float(np.mean(a["n_sink"])), "sink_mass": float(np.mean(a["mass_total"])),
+                              "count": dict(zip(SINK_CATS, cnt.tolist())), "chance": dict(zip(SINK_CATS, ch.tolist())),
+                              "mass": dict(zip(SINK_CATS, ms.tolist()))}
+    # 示意图：固定高亮图块画在原图上（红 = 滑动窗口层，蓝 = 全局层；格子里的数字 = 有几层把它判为固定高亮）
+    try:
+        from PIL import Image, ImageDraw
+        names = []
+        for i, grid, sink, sl, cat in examples:
+            im = Image.open(items[i]["image"]).convert("RGB")
+            W, H = im.size
+            gh, gw = int(grid[0]), int(grid[1])
+            dr = ImageDraw.Draw(im)
+            groups = [("滑动窗口层", sl, (230, 30, 30)), ("全局层", ~sl, (30, 80, 230))] if sl.any() else [("全部层", np.ones(len(sink), bool), (230, 30, 30))]
+            for _, lm, color in groups:
+                if not lm.any():
+                    continue
+                cnt = sink[lm].sum(0)
+                for p in np.flatnonzero(cnt):
+                    r_, c_ = divmod(int(p), gw)
+                    box = (c_ * W / gw, r_ * H / gh, (c_ + 1) * W / gw - 1, (r_ + 1) * H / gh - 1)
+                    dr.rectangle(box, outline=color, width=2)
+                    dr.text((box[0] + 2, box[1] + 1), str(int(cnt[p])), fill=color)
+            f = os.path.join(pics_dir, f"{i}_sinks.png")
+            im.save(f)
+            names.append(os.path.basename(f))
+        L += ["## 示意图", "", "sink_check/ 里的图：把固定高亮图块画在原图上。红框 = 滑动窗口层，蓝框 = 全局层，框里的数字 = 有几层把这个图块判为固定高亮。", ""]
+        L += [f"- {n}" for n in names] + [""]
+    except Exception as e:
+        L += [f"（示意图没有画出：{type(e).__name__}: {e}）", ""]
+    if out["skipped"]:
+        L += [f"不计入（同样图块排列的题不足 {SINK_MIN_ITEMS} 道，或找不到图块排列）：{'、'.join(sorted(set(out['skipped'])))}。", ""]
+    out_md = out_md or os.path.join(root, "sink_check_report.md")
+    with open(out_md, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(L) + "\n")
+    _atomic_json(out_md.replace(".md", ".json"), out)
+    print(f"[sink-check] {label}：{out['items']} 道题 → {out_md}", file=sys.stderr)
+    return out

@@ -2120,3 +2120,35 @@ def test_reading_layers_e(tmp_path):
     assert abs(st["e2_neutral"] - 1.0) < 1e-9 and abs(st["e2_belief_right"] - 1.0) < 1e-9 and abs(st["e2_belief"]) < 1e-9
     assert abs(st["sink_belief"] - 0.5) < 1e-9
     assert st["e_belief"] < st["e_belief_right"]
+
+
+def test_sink_check_categories(tmp_path):
+    from symexp.fp import reading_groups as rg
+    geom = (100.0, 100.0, 80.0, 200, 200)
+    cat = rg.patch_categories(geom, (20, 20), "3:00:00")
+    g = cat.reshape(20, 20)
+    assert (g[0] == 0).all() and (g[:, -1] == 0).all()           # 最外一圈 = 图像边缘
+    assert g[9, 9] == 1 and g[10, 10] == 1                        # 中心 = 钟表圆心
+    assert g[2, 10] == 2                                          # 12 点方向（分针 3:00 指向 12）离圆心约 0.9 个半径 = 指针
+    assert g[10, 13] == 2                                         # 3 点方向近处 = 时针
+    assert g[10, 16] == 3                                         # 3 点方向远处（约 0.8 个半径）：时针只到 0.6 个半径 → 钟面其他
+    assert g[10, 18] == 4                                         # 更远（超过 1.05 个半径）、不在最外一圈 → 钟面外
+    # 端到端：8 道题，固定高亮放在图块 0（左上角 = 图像边缘）
+    import json, os
+    cq, root = tmp_path / "cq", tmp_path / "root"
+    (root / "reading_all").mkdir(parents=True); cq.mkdir()
+    from PIL import Image
+    from PIL import ImageDraw
+    im = Image.new("RGB", (200, 200), (255, 255, 255))
+    ImageDraw.Draw(im).ellipse((20, 20, 180, 180), outline=(0, 0, 0), width=3)       # 钟面轮廓：dial_geometry 要找深色像素
+    im.save(tmp_path / "c.png")
+    with open(cq / "items.jsonl", "w") as f:
+        for k in range(8):
+            f.write(json.dumps({"id": f"CQ-{k:03d}", "gold": "3:00:00", "claim": "4:00:00", "image": str(tmp_path / "c.png")}) + "\n")
+    for k in range(8):
+        D = np.full((4, 2, 3, 400), 1.0); D[..., 0] = 100.0
+        np.savez(root / "reading_all" / f"CQ-{k:03d}__neutral.npz", dist_sum=D, mass_sum=np.ones((4, 2, 3)), count=np.full(4, 8),
+                 sliding=np.array([True, False]), grid_hw=np.array([20, 20]))
+    out = rg.run_sink_check(str(cq), str(root), "测试")
+    assert out["items"] == 8 and abs(out["kinds"]["滑动窗口层"]["count"]["图像边缘"] - 1.0) < 1e-9
+    assert (root / "sink_check" / "CQ-000_sinks.png").exists()
