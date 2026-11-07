@@ -428,8 +428,9 @@ def run(cfg, root: str, ent_dir: str, model_key: str, ids: List[str], image_dirs
             rec["group"] = e["group"]
             rec["original"] = {"outcome": outcome(orig.get("answer", ""), item["gold"], rec["claim"]),
                                "answer": orig.get("answer", "")}
-            with open(p, "w", encoding="utf-8") as f:
+            with open(p + ".tmp", "w", encoding="utf-8") as f:
                 json.dump(rec, f, ensure_ascii=False, indent=1)
+            os.replace(p + ".tmp", p)
             cs = rec["controller"]
             print(f"  {iid}__{c} {arm}：{rec['outcome']}，{rec['n_out']} token，{rec['seconds']}s，窗口 {cs['window_steps']} 步，"
                   f"复述段结束于第 {cs['restate_end']} 个 token，跳过层次数 {cs['skipped_layer_calls']}，参照核对 {rec['ref_check']}",
@@ -442,7 +443,10 @@ def report(root: str, label: str = "") -> None:
     recs = {}
     for fn in sorted(os.listdir(d)):
         if fn.endswith(".json"):
-            r = json.load(open(os.path.join(d, fn), encoding="utf-8"))
+            try:
+                r = json.load(open(os.path.join(d, fn), encoding="utf-8"))
+            except json.JSONDecodeError:                # 并行时别的进程正在写；最后用 --report-only 重写报告
+                continue
             recs[(r["id"], r["condition"], r["arm"])] = r
     cname = {"belief": "用户说错", "belief_right": "用户说对"}
     gname = {"flip": "被带偏", "hold": "守住"}
