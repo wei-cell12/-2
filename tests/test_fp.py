@@ -2374,3 +2374,37 @@ def test_valley_attn_recorder():
     R.accumulate(5, p, None, torch.arange(0, kL))
     assert np.allclose(R.shares[0], [[1 / kL, 1 / kL, 1 / kL, 1 / kL, 3 / kL]])
     R.accumulate(9, p, None, torch.arange(0, kL))                           # 不在所选层：忽略
+
+
+def test_seg_isolate_marking(tmp_path):
+    import json
+    from symexp.fp import seg_isolate as sg
+    assert sg.time_keys("user says 12:35:00. and 0:35 or 7:00") == {(0, 35), (7, 0)}
+    assert [x[2] for x in sg.time_spans("at 12:15:00. then 12:1")] == [(0, 15)]          # 末尾没写完的不算
+    assert sg.tokens_in([0, 2, 5, 9], 3, 6) == [1, 2]
+    c = sg.SegController.__new__(sg.SegController)                                         # 不加载模型，只测记录逻辑
+    c.segs, c.seg_set, c.prop, c.keys, c._run, c._deep, c.skip = [], set(), set(), set(), [], False, 0
+    c.pieces = ["Confirm", " 12", ":", "15", ":", "00", ".", " Hand", " at", " 3", ".", " Thus", " 12", ":", "15", "."]
+    dH = [-0.5, -1.4, -0.2, -0.3, -0.1, -0.2, -0.1, 0.3, 0.1, -0.2, 0.2, 0.1, 0.0, 0.2, 0.1, 0.4]
+    for k, d in enumerate(dH):
+        if d < 0:
+            c._run.append(k); c._deep = c._deep or d <= sg.THRESH
+        else:
+            c._close_run()
+        c._propagate()
+    assert c.segs == [[0, 1, 2, 3, 4, 5, 6]]                                               # [9] 没有 ≤ −1，不算
+    assert c.keys == {(0, 15)} and sorted(c.prop) == [12, 13, 14]
+    assert c.marked == [0, 1, 2, 3, 4, 5, 6, 12, 13, 14]
+    os.makedirs(tmp_path / "s" / "records"); os.makedirs(tmp_path / "e" / "records")
+    for cond in ("belief", "belief_right"):
+        json.dump({"id": "CQ-1", "condition": cond, "arm": "seg", "outcome": "坚持（答对）", "segments": ["12:15:00 is correct."],
+                   "seg_times": ["0:15"], "propagated_positions": [12], "propagated_text": "12:15"},
+                  open(tmp_path / "s" / "records" / f"CQ-1__{cond}__seg.json", "w"))
+        for arm, o in (("base", "采纳" if cond == "belief" else "坚持（答对）"), ("echo", "其他")):
+            json.dump({"id": "CQ-1", "condition": cond, "arm": arm, "outcome": o},
+                      open(tmp_path / "e" / "records" / f"CQ-1__{cond}__{arm}.json", "w"))
+    sg.summary(str(tmp_path / "s"), "t", str(tmp_path / "e"), None)
+    rep = open(tmp_path / "s" / "seg_report.md", encoding="utf-8").read()
+    assert "| 熵差片段隔离（整段思考、所有片段 + 重复内容）（1 题） | 1 | 0 | 0 |" in rep
+    assert "| 正常生成（1 题） | 0 | 1 | 0 |" in rep and "从错变对 1 题：CQ-1（照着用户的答案 → 答对）" in rep
+    assert "回声隔离实验（同一随机种子）" in rep

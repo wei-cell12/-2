@@ -235,6 +235,18 @@ def main():
     fec.add_argument("--window", type=int, default=128)
     fec.add_argument("--maskq-root", default=None, help="summary：fp-maskq 的结果目录，一起对比")
     fec.add_argument("--label", default="")
+    fsg = sub.add_parser("fp-seg", help="熵差片段隔离：整段思考里读不到靠用户那句话写出来的片段及其重复内容（ClockQA 20 题）")
+    fsg.add_argument("--phase", required=True, choices=["run", "summary"])
+    fsg.add_argument("--root", required=True)
+    fsg.add_argument("--entropy-dir", default=None)
+    fsg.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"])
+    fsg.add_argument("--neutral-dir", default=None, help="run：模型自己改写的中性问题（fp-model2 neutralize 的 neutralized/ 目录）")
+    fsg.add_argument("--ids", nargs="*", default=None)
+    fsg.add_argument("--arms", nargs="*", default=None, choices=["base", "seg"], help="run：默认只跑 seg（base 沿用回声隔离实验）")
+    fsg.add_argument("--image-dirs", nargs="*", default=None)
+    fsg.add_argument("--echo-root", default=None, help="summary：回声隔离的结果目录（取 base 与 echo 一起对比）")
+    fsg.add_argument("--maskq-root", default=None, help="summary：fp-maskq 的结果目录")
+    fsg.add_argument("--label", default="")
     fva = sub.add_parser("fp-valleyattn", help="熵谷之后的注意力归因：回放原回答，看后面的词对图像 / 用户那句话 / 熵差片段的注意力（不生成）")
     fva.add_argument("--phase", required=True, choices=["run", "report"])
     fva.add_argument("--root", required=True)
@@ -303,7 +315,7 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx, fmq, fec, fva):
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx, fmq, fec, fva, fsg):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -403,6 +415,15 @@ def main():
                           a.image_dirs, a.shard, seed=a.seed, ids=a.ids, gamma=a.gamma, window=a.window)
             else:
                 fp_ec.summary(a.root, a.label, a.maskq_root)
+        elif a.cmd == "fp-seg":
+            from symexp.fp import seg_isolate as fp_sg
+            if a.phase == "run":
+                if not (a.entropy_dir and a.model_key and a.neutral_dir):
+                    raise SystemExit("fp-seg run 需要 --entropy-dir、--model-key、--neutral-dir")
+                fp_sg.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.neutral_dir,
+                          a.image_dirs, a.shard, seed=a.seed, ids=a.ids, arms=a.arms)
+            else:
+                fp_sg.summary(a.root, a.label, a.echo_root, a.maskq_root)
         elif a.cmd == "fp-valleyattn":
             from symexp.fp import valley_attn as fp_va
             if a.phase == "run":
