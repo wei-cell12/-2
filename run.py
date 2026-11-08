@@ -295,6 +295,16 @@ def main():
     fre.add_argument("--ids", nargs="*", default=None)
     fre.add_argument("--image-dirs", nargs="*", default=None)
     fre.add_argument("--label", default="")
+    frl = sub.add_parser("fp-rl", help="先看再听：读图阶段由看不到用户的话的熵差分支来写（看图量下降时切换），之后用熵差隔离；对照 base / ITSM，三个数据集各 20 题")
+    frl.add_argument("--phase", required=True, choices=["neutralize", "run", "judge-export", "match-export", "summary"])
+    frl.add_argument("--root", required=True)
+    frl.add_argument("--entropy-dir", default=None)
+    frl.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"])
+    frl.add_argument("--arms", nargs="*", default=None, choices=["base", "itsm", "rl", "rl0"], help="run：默认 base itsm rl")
+    frl.add_argument("--datasets", nargs="*", default=None, choices=["ClockQA", "PathVQA", "PENDULUM"])
+    frl.add_argument("--ids", nargs="*", default=None, help="run：只做这些题（试跑用）")
+    frl.add_argument("--image-dirs", nargs="*", default=None)
+    frl.add_argument("--label", default="")
     fvl = sub.add_parser("fp-valley", help="熵差谷注入视觉信息（LEAD 风格）：base / lead / img，三个数据集各 20 题")
     fvl.add_argument("--phase", required=True, choices=["run", "judge-export", "match-export", "summary"])
     fvl.add_argument("--root", required=True)
@@ -327,7 +337,7 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx, fmq, fec, fva, fsg, fsa):
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx, fmq, fec, fva, fsg, fsa, frl):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -485,6 +495,22 @@ def main():
                           a.image_dirs, a.shard)
             else:
                 fp_re.analyze(a.root, a.label)
+        elif a.cmd == "fp-rl":
+            from symexp.fp import read_listen as fp_rl
+            from symexp.fp import valley_inject as fp_vl
+            if a.phase in ("neutralize", "run") and not (a.entropy_dir and a.model_key):
+                raise SystemExit("fp-rl neutralize / run 需要 --entropy-dir、--model-key")
+            if a.phase == "neutralize":
+                fp_rl.neutralize(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.shard)
+            elif a.phase == "run":
+                fp_rl.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.image_dirs, a.shard,
+                          seed=a.seed, arms=a.arms, datasets=a.datasets, ids=a.ids)
+            elif a.phase == "judge-export":
+                fp_vl.judge_export(a.root)
+            elif a.phase == "match-export":
+                fp_vl.match_export(a.root)
+            else:
+                fp_rl.summary(a.root, a.label)
         elif a.cmd == "fp-valley":
             from symexp.fp import valley_inject as fp_vl
             if a.phase == "run":

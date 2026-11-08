@@ -1319,8 +1319,7 @@ def test_model2_yesno_setup_and_judge(tmp_path):
     from symexp.fp import model2 as m2
     from symexp.fp import yesno
     assert m2.task_of({"gold": "yes"}) == "yesno" and m2.task_of({"gold": "7:05:00"}) == "clock"
-    with pytest.raises(m2.Model2CheckFailed):
-        m2.task_of({"id": "x", "gold": "fat necrosis"})
+    assert m2.task_of({"id": "x", "gold": "fat necrosis"}) == "open"              # 开放问答（PENDULUM）由盲判读处理
     q = "is abdomen present?"
     it = {"id": "PV-000", "question": q, "gold": "yes", "claim": "no",
           "messages": {"neutral": q, "belief": q + "\nI believe the correct answer is no."}}
@@ -2472,3 +2471,38 @@ def test_seg_isolate_c_branches():
     finally:
         vi.ValleyController.verify_ref = orig
     assert called["n"] == 9                                                          # 只核对到第一段片段开始隔离之前
+
+
+
+def test_read_listen_switch_rule_and_reading_stage():
+    from symexp.fp import read_listen as rl
+    assert not rl.para_switch([0.2])
+    assert not rl.para_switch([0.10, 0.20, 0.11])
+    assert rl.para_switch([0.10, 0.20, 0.09])                                        # 降到此前最高段的一半以下
+    assert rl.para_switch([0.30, 0.14])
+    c = rl.RLController.__new__(rl.RLController)                                     # 不加载模型，只测读图阶段的记录与切换
+    c.ratio, c.min_par, c.r_max, c.reading, c.switch_at, c.switch_reason = 0.5, 2, 100, True, None, None
+    c.ref_mass, c._par, c.par_masses, c.par_info, c.skip = [], [], [], [], 0
+    c.pieces = ["The", " clock", ".\n\n", "Hour", " hand", " at", " 7", ".\n\n", "So", " it", " is", " 7", ".\n\n", "Now"]
+    mass = [0.05, 0.05, 0.05, 0.2, 0.2, 0.2, 0.2, 0.2, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+
+    class A:                                                                         # 只模拟 post_hook 里读图阶段那一段逻辑
+        pass
+    for k in range(1, len(c.pieces) + 1):
+        c.acc = {"ref": {"mass": mass[k - 1], "n": 1}}
+        a = c.acc.get("ref")
+        c.ref_mass.append(float(a["mass"] / a["n"]))
+        c._par.append(k - 1)
+        if "\n\n" in c.pieces[k - 1]:
+            v = [c.ref_mass[i] for i in c._par]
+            if len(c._par) >= c.min_par:
+                c.par_masses.append(float(np.mean(v)))
+                if rl.para_switch(c.par_masses, c.ratio):
+                    c._end_reading(k, "看图量降到此前最高段的一半以下")
+            c._par = []
+        if not c.reading:
+            break
+    assert c.switch_at == 13 and "".join(c.pieces[:c.switch_at]).endswith("So it is 7.\n\n")
+    assert c._iso_here.__func__(type("X", (), {"mode": "rl", "branch": "main"})())
+    assert not c._iso_here.__func__(type("X", (), {"mode": "rl0", "branch": "main"})())
+    assert not c._iso_here.__func__(type("X", (), {"mode": "rl", "branch": "ref"})())

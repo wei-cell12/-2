@@ -93,13 +93,13 @@ def check_grid_tokens(grid_thw, n_img: int, merge: int, patch: Optional[int] = N
 
 
 def task_of(item: dict) -> str:
-    """clock：正确答案是时间（ClockQA）；yesno：是/否题（PathVQA）。"""
+    """clock：正确答案是时间（ClockQA）；yesno：是/否题（PathVQA）；open：其他开放问答（PENDULUM）。"""
     g = str(item.get("gold", "")).strip().lower()
     if g in ("yes", "no"):
         return "yesno"
     if _TIME.fullmatch(g):
         return "clock"
-    raise Model2CheckFailed(f"{item.get('id')}：认不出题型（gold = {item.get('gold')!r}）")
+    return "open"                                           # 开放问答（PENDULUM）：由盲判读抽取答案
 
 
 def add_belief_right(item: dict) -> dict:

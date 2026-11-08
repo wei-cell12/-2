@@ -698,9 +698,10 @@ def judged_status(root: str, recs: Dict[str, dict]) -> Dict[str, Tuple[str, str]
     return st
 
 
-def summary(root: str, label: str = "", title: Optional[str] = None, notes: Optional[List[str]] = None) -> None:
+def summary(root: str, label: str = "", title: Optional[str] = None, notes: Optional[List[str]] = None,
+            arms_order: Optional[List[str]] = None) -> None:
     recs = dict(_records(root))
-    arms = [a for a in ("base", "lead", "img", "pull") if any(r["arm"] == a for r in recs.values())]
+    arms = [a for a in (arms_order or ("base", "lead", "img", "pull")) if any(r["arm"] == a for r in recs.values())]
     js = judged_status(root, recs)
     st = {(recs[fn]["id"], recs[fn]["condition"], recs[fn]["arm"]): v for fn, v in js.items()}
     cname = {"belief": "用户说错", "belief_right": "用户说对"}
@@ -735,7 +736,7 @@ def summary(root: str, label: str = "", title: Optional[str] = None, notes: Opti
             continue
         i, c = r["id"], r["condition"]
         cells = [st.get((i, c, a), ("", "待判读"))[1] for a in arms]
-        kind = r.get("restate_kind") or r.get("controller", {}).get("restate_kind")
+        kind = r.get("restate_kind") or (r.get("controller") or {}).get("restate_kind")
         L.append(f"| {i} | {cname[c]} | {r['group']} | " + " | ".join(cells) + f" | {kind} |")
     if any("events" in r for r in recs.values()):
         L += ["", "## 报警与看图总量", "",
@@ -746,16 +747,16 @@ def summary(root: str, label: str = "", title: Optional[str] = None, notes: Opti
                 rs = [r for r in recs.values() if r["dataset"] == ds and r["arm"] == a]
                 if not rs:
                     continue
-                evs = [ev for r in rs for ev in r["events"]]
+                evs = [ev for r in rs for ev in r.get("events", [])]
                 bf = np.nanmean([ev.get("mass_before", np.nan) for ev in evs]) if evs else float("nan")
                 af = np.nanmean([ev.get("mass_after", np.nan) for ev in evs]) if evs else float("nan")
                 L.append(f"| {ds} | {a} | {len(rs)} | {len(evs) / len(rs):.2f} | {sum(ev['inject'] for ev in evs) / len(rs):.2f} | "
                          f"{bf * 100:.1f}% | {af * 100:.1f}% |")
-    if any("controller" in r and "by_kind" in r["controller"] for r in recs.values()):
+    if any("by_kind" in (r.get("controller") or {}) for r in recs.values()):
         L += ["", "## 读图窗口里的看图注意力（pull 组，按数据集平均）", "",
               "| 数据集 | 层 | 回答数 | 看图总量：调整前 → 调整后 | 与参照的差别（JSD）：调整前 → 调整后 |", "|---|---|---:|---|---|"]
         for ds in DATASETS:
-            rs = [r for r in recs.values() if r["dataset"] == ds and r["arm"] == "pull" and "by_kind" in r["controller"]]
+            rs = [r for r in recs.values() if r["dataset"] == ds and r["arm"] == "pull" and "by_kind" in (r.get("controller") or {})]
             kinds = sorted({k for r in rs for k in r["controller"]["by_kind"]})
             for k in kinds:
                 v = [r["controller"]["by_kind"][k] for r in rs if k in r["controller"]["by_kind"]]
