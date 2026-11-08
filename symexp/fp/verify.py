@@ -113,12 +113,19 @@ def map_supported_line(text: str, cands: List[str]) -> str:
     return re.sub(r"Supported:\s*\(?\s*(\d+|none)\s*\)?", rep, text, flags=re.I)
 
 
+def _hms(t: str):
+    """时:分[:秒] → (时, 分, 秒)，没写秒算 0。只用来判断两个时间是否相同（例如 12:05 与 12:05:00）。
+    以前用"去掉所有 :00"来比，会把 12:00:05 当成 12:05，已改正。"""
+    m = _TP.search(t or "")
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)) if m else t
+
+
 def final_time(answer: str, claim: str) -> Optional[str]:
     """最终回答里模型自己断言的时间：先去掉与用户说法完全相同的时间（常出现在“你说的 X 不对”里），取剩下的第一个；
     没有剩下的就是用户的时间（模型照用户说的回答）。"""
     from .conflict import clock_match
     ts = [m.group(0) for m in _TP.finditer(answer or "")]
-    own = [t for t in ts if clock_match(t, claim) != "exact" and t.replace(":00", "") != claim.replace(":00", "")]
+    own = [t for t in ts if clock_match(t, claim) != "exact" and _hms(t) != _hms(claim)]
     return own[0] if own else (claim if ts else None)
 
 

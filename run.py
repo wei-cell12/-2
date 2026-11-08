@@ -242,7 +242,8 @@ def main():
     fsg.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"])
     fsg.add_argument("--neutral-dir", default=None, help="run：模型自己改写的中性问题（fp-model2 neutralize 的 neutralized/ 目录）")
     fsg.add_argument("--ids", nargs="*", default=None)
-    fsg.add_argument("--arms", nargs="*", default=None, choices=["base", "seg"], help="run：默认只跑 seg（base 沿用回声隔离实验）")
+    fsg.add_argument("--arms", nargs="*", default=None, choices=["base", "seg", "segc"],
+                     help="run：默认只跑 seg（base 沿用回声隔离实验）；segc = 方案 C，熵差分支也读不到已隔离的片段")
     fsg.add_argument("--image-dirs", nargs="*", default=None)
     fsg.add_argument("--echo-root", default=None, help="summary：回声隔离的结果目录（取 base 与 echo 一起对比）")
     fsg.add_argument("--maskq-root", default=None, help="summary：fp-maskq 的结果目录")

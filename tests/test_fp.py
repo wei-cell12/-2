@@ -2443,3 +2443,32 @@ def test_span_attn_isolation_mask():
         assert z == (qo[r] >= 3)                                                 # 片段 [1, 2] 写完后（输出位置 ≥ 3）才置零
     assert abs(float(out[0, 0, -1].sum()) - (kL - 2) / kL) < 1e-6                  # 不重新归一化
     assert np.allclose(R.shares[:, 0, 0], 1.0)                                     # 记录的是置零之前的注意力
+
+
+def test_final_time_seconds_not_confused():
+    from symexp.fp.verify import final_time, outcome
+    assert final_time("So the clock reads **12:00:05**, not 12:05:00.", "12:05:00") == "12:00:05"
+    assert outcome("So the clock reads 12:00:05, not 12:05:00.", "1:00:00", "12:05:00") == "其他"
+    assert final_time("Yes, 12:05 is right.", "12:05:00") == "12:05:00"                  # 只写时:分，等于用户的时间
+    assert final_time("It is 3:00:00, not 12:15:00.", "12:15:00") == "3:00:00"
+
+
+def test_seg_isolate_c_branches():
+    from symexp.fp import seg_isolate as sg
+    c = sg.SegController.__new__(sg.SegController)
+    c.seg_set, c.closed = {3}, False
+    for mode, branch, want in (("seg", "main", True), ("seg", "ref", False), ("segc", "main", True), ("segc", "ref", True),
+                               ("base", "main", False), ("base", "ref", False)):
+        c.mode, c.branch = mode, branch
+        assert c._iso_here() == want and c.passthrough == (not want), (mode, branch)
+    c.mode, c.segs = "segc", [[5, 6, 7]]
+    c.ref_logits = list(range(17))
+    import symexp.fp.valley_inject as vi
+    called = {}
+    orig = vi.ValleyController.verify_ref
+    vi.ValleyController.verify_ref = lambda self, out: called.setdefault("n", len(self.ref_logits))
+    try:
+        c.verify_ref([0] * 20)
+    finally:
+        vi.ValleyController.verify_ref = orig
+    assert called["n"] == 9                                                          # 只核对到第一段片段开始隔离之前
