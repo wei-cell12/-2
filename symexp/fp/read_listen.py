@@ -11,7 +11,8 @@
   rl 组：之后每段熵差片段（连续负熵差、其中至少一步 ≤ −1）写完之后，后面的词读不到它的内容（权重乘 0，不重新归一化）；
   rl0 组：不隔离（只看读图阶段的作用）。提示（包括用户那句话）和图像都不动。
 对照：base（正常生成）、itsm（ITSM：中性分支对比解码，fp-model2 的实现）、preread（先读后听：两次调用、预读 64–128 个词，
-  preread.py 的实现），同一随机种子。
+  preread.py 的实现）、reframe（Ask Don't Tell 的两步改写：直接回答模型改写出的中性问题，看不到用户的话）、
+  mmsy（MM-SY，fp-model2 的实现，须单独一个进程跑）、s2va（S2VA，s2va.py 的实现），同一随机种子。
 """
 
 import json
@@ -27,7 +28,7 @@ from .valley_inject import CONDS, DATASETS, THRESH
 RATIO = 0.5
 MIN_PAR = 8
 R_MAX = 512
-ARMS = ["base", "itsm", "preread", "rl", "rl0"]
+ARMS = ["base", "reframe", "itsm", "mmsy", "s2va", "preread", "rl", "rl0"]
 DEFAULT_ARMS = ["base", "itsm", "rl"]
 
 
@@ -174,20 +175,24 @@ def neutralize(cfg, root: str, ent_dir: str, model_key: str, shard: str = "") ->
 # ---------------------------------------------------------------- 生成
 def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[str]] = None, shard: str = "",
         seed: int = 42, arms: Optional[List[str]] = None, datasets: Optional[List[str]] = None,
-        ids: Optional[List[str]] = None) -> None:
+        ids: Optional[List[str]] = None, per_dataset: int = 20) -> None:
     from .conflict import _engine, claim_of
     from .mask_query import first_reading
     from .model2 import generate2
     from .pipeline import _shard
     from .trigger_regions import load_entropy, resolve_image, resolve_source
-    from .valley_inject import claim_answer, generate, selection
+    from .valley_inject import claim_answer, generate, select_items
     from .verify import final_time, outcome
     arms = arms or DEFAULT_ARMS
     datasets = datasets or DATASETS
+    if "mmsy" in arms and len(arms) > 1:
+        raise SystemExit("mmsy 会另装一套注意力包装，请单独一个进程跑（--arms mmsy）")
     os.makedirs(os.path.join(root, "records"), exist_ok=True)
     ent = load_entropy(ent_dir, model_key, DATASETS)
-    sel = selection(ent)
-    with open(os.path.join(root, "selection.json"), "w", encoding="utf-8") as f:
+    sel = {ds: select_items({k[0]: v["group"] for k, v in ent.items() if v["dataset"] == ds and k[1] == "belief"}, per_dataset)
+           for ds in DATASETS}                                  # per_dataset = 20 时与熵谷注入、主实验的选题完全相同
+    with open(os.path.join(root, "selection.json" if per_dataset == 20 else f"selection_n{per_dataset}.json"), "w",
+              encoding="utf-8") as f:
         json.dump(sel, f, ensure_ascii=False, indent=1)
     tasks = [(ds, i, c, a) for ds in datasets for i in sel[ds] for c in CONDS for a in arms if not ids or i in ids]
     tasks = _shard(tasks, shard)
@@ -202,7 +207,7 @@ def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[
         item["image"] = resolve_image(job, orig, image_dirs)
         item.setdefault("id", iid)
         npath = os.path.join(root, "neutralized", f"{iid}__{c}.json")
-        if arm in ("itsm", "preread", "rl", "rl0"):
+        if arm in ("itsm", "preread", "rl", "rl0", "reframe", "s2va"):
             if not os.path.exists(npath):
                 raise SystemExit(f"缺少模型改写的中性问题 {npath}（先跑 --phase neutralize）")
             nq = json.load(open(npath, encoding="utf-8"))["neutral"]
@@ -210,8 +215,20 @@ def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[
             nq = None
         if eng is None:
             eng = _engine(cfg)
+            if "mmsy" in arms:
+                from .model2 import install
+                layer_info = install(eng.backend.model)
         if arm in ("base", "itsm"):
             rec = generate2(eng.backend, cfg, item, c, arm, seed=seed, neutral_text=nq)
+        elif arm == "mmsy":
+            rec = generate2(eng.backend, cfg, item, c, "mmsy", seed=seed, layer_info=layer_info)
+        elif arm == "reframe":                                  # 直接回答模型改写出的中性问题（看不到用户的话）
+            it2 = dict(item, messages=dict(item["messages"], **{c: nq}))
+            rec = generate2(eng.backend, cfg, it2, c, "base", seed=seed)
+            rec["message"] = item["messages"][c]
+        elif arm == "s2va":
+            from .s2va import generate_s2va
+            rec = generate_s2va(eng.backend, cfg, item, c, seed, neutral_text=nq)
         elif arm == "preread":
             from .preread import generate_preread
             rec = generate_preread(eng.backend, cfg, item, c, seed, neutral_text=nq)
@@ -240,7 +257,8 @@ def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[
 def summary(root: str, label: str = "") -> None:
     from .valley_inject import summary as vsum
     notes = [
-        "- base：正常生成；itsm：ITSM（中性分支对比解码）；preread：先读后听（两次调用，预读 64–128 个词，贴在思考开头）；",
+        "- base：正常生成；reframe：直接回答模型改写出的中性问题（Ask Don't Tell 两步改写，看不到用户的话）；"
+        "itsm：ITSM（中性分支对比解码）；mmsy：MM-SY；s2va：S2VA；preread：先读后听（两次调用，预读 64–128 个词，贴在思考开头）；",
         f"- rl（先看再听）：思考开头由看不到用户的话的熵差分支来写，写到某一段的看图量降到此前最高段的 {RATIO} 以下"
         f"（或满 {R_MAX} 个词）为止；之后切回主分支，熵差片段写完后隔离；rl0：同样的读图阶段，之后不隔离；",
         "- 中性问题都是模型自己改写的；各组同一随机种子。"]

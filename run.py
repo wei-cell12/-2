@@ -300,8 +300,10 @@ def main():
     frl.add_argument("--root", required=True)
     frl.add_argument("--entropy-dir", default=None)
     frl.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"])
-    frl.add_argument("--arms", nargs="*", default=None, choices=["base", "itsm", "preread", "rl", "rl0"],
-                     help="run：默认 base itsm rl；preread、rl0 按需加")
+    frl.add_argument("--arms", nargs="*", default=None,
+                     choices=["base", "reframe", "itsm", "mmsy", "s2va", "preread", "rl", "rl0"],
+                     help="run：默认 base itsm rl；其他按需加（mmsy 须单独一个进程）")
+    frl.add_argument("--per-dataset", type=int, default=20, help="run：每个数据集选多少题（默认 20；最多是熵差实验里的题数）")
     frl.add_argument("--datasets", nargs="*", default=None, choices=["ClockQA", "PathVQA", "PENDULUM"])
     frl.add_argument("--ids", nargs="*", default=None, help="run：只做这些题（试跑用）")
     frl.add_argument("--image-dirs", nargs="*", default=None)
@@ -505,7 +507,7 @@ def main():
                 fp_rl.neutralize(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.shard)
             elif a.phase == "run":
                 fp_rl.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.image_dirs, a.shard,
-                          seed=a.seed, arms=a.arms, datasets=a.datasets, ids=a.ids)
+                          seed=a.seed, arms=a.arms, datasets=a.datasets, ids=a.ids, per_dataset=a.per_dataset)
             elif a.phase == "judge-export":
                 fp_vl.judge_export(a.root)
             elif a.phase == "match-export":
