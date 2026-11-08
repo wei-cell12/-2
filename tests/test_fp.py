@@ -2303,3 +2303,21 @@ def test_mix_decode_pure(tmp_path):
     mx.summary(str(tmp_path), "t")
     rep = open(tmp_path / "mix_report.md", encoding="utf-8").read()
     assert "| ClockQA | 用户说错 | 2 | 0 | 1 |" in rep and "1 / 0 / 0" in rep and "' hour'" in rep
+
+
+def test_mask_query_pure(tmp_path):
+    import json
+    from symexp.fp import mask_query as mq
+    t = "The user wants me to confirm whether 12:35:00 is correct. Looking closely, the hour hand is at 7, so it is 7:00. If it were 12:35 the hand would move."
+    fr = mq.first_reading(t, "7:00:00", "12:35:00")
+    assert fr["time"] == "7:00" and fr["kind"] == "对"
+    assert mq.first_reading("The time reads 12:35.", "7:00:00", "12:35:00")["kind"] == "用户的时间"
+    assert mq.first_reading("no times here", "7:00:00", "12:35:00")["kind"] == "无读数"
+    pieces = ["What", " time", "?", "\n", "I", " believe", " 12", ":35", ".", "<end>"]
+    dec = lambda ids: "".join(pieces[i] for i in ids)
+    span = mq.claim_span(dec, list(range(len(pieces))), "What time?\nI believe 12:35.", "What time?")
+    assert span == [4, 5, 6, 7, 8]
+    ref = np.zeros((mq.REC_W, 1, 10)); ref[:, 0, :2] = 1.0
+    dist = np.zeros((mq.REC_W, 1, 10)); dist[:, 0, :] = 1.0
+    s = mq.stats(dist, np.full((mq.REC_W, 1), 0.3), np.array([True]), ref)
+    assert abs(s["mass"] - 0.3) < 1e-12 and abs(s["E"] - 0.2) < 1e-12 and abs(s["E_neutral"] - 1.0) < 1e-12
