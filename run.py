@@ -331,7 +331,8 @@ def main():
                      help="run：生成；之后 PathVQA、PENDULUM 的盲判读与汇总，与 fp-valley 相同")
     fa1.add_argument("--datasets", nargs="*", default=None, help="run 且不给 --ids 时：用 fp-valley 的选题做这些数据集")
     fm2 = sub.add_parser("fp-model2", help="第二个模型（Gemma 4 等）的 ClockQA baseline：原模型三种条件、MM-SY、ITSM、S2VA")
-    fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run", "yn-export", "yn-summary"])
+    fm2.add_argument("--phase", required=True, choices=["setup", "neutralize", "run", "yn-export", "yn-summary",
+                                                       "open-export", "open-compare", "open-summary"])
     fm2.add_argument("--src-cq", default=None, help="setup：原 ClockQA 目录（读 items.jsonl 和图像）")
     fm2.add_argument("--cq", required=True, help="这个模型的 ClockQA 目录（setup 建；原模型种子 42 的记录写在 obs/records）")
     fm2.add_argument("--root", default=None, help="run：其他方法、其他种子的结果目录")
@@ -340,6 +341,10 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
+    fm2.add_argument("--open-out", default=None, help="open-*：PENDULUM 判读目录（默认 root/open_judge）")
+    fm2.add_argument("--open-arms", nargs="*", default=["itsm", "s2va", "preread"], help="open-export：导出这些方法")
+    fm2.add_argument("--base-judgments", default=None, help="open-summary：原模型已有的 PENDULUM 判读（*_judgments.json），用于同题配对")
+    fm2.add_argument("--label", default="")
     for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx, fmq, fec, fva, fsg, fsa, frl):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
@@ -692,6 +697,17 @@ def main():
                 fp_model2.setup(a.src_cq, a.cq)
             elif a.phase == "neutralize":
                 fp_model2.run_neutralize(Config.load(a.config, _overrides(a.set)), a.cq, a.shard)
+            elif a.phase in ("open-export", "open-compare", "open-summary"):
+                from symexp.fp import open_judge as fp_oj
+                if not a.root:
+                    raise SystemExit(f"--phase {a.phase} 需要 --root")
+                out = a.open_out or os.path.join(a.root, "open_judge")
+                if a.phase == "open-export":
+                    fp_oj.export_extract(a.cq, a.root, out, a.open_arms)
+                elif a.phase == "open-compare":
+                    fp_oj.export_compare(a.cq, out)
+                else:
+                    fp_oj.summary(a.cq, out, a.base_judgments, a.label)
             elif a.phase in ("yn-export", "yn-summary"):
                 from symexp.fp import yesno as fp_yesno
                 if not a.root:

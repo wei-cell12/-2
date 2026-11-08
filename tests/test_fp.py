@@ -2506,3 +2506,49 @@ def test_read_listen_switch_rule_and_reading_stage():
     assert c._iso_here.__func__(type("X", (), {"mode": "rl", "branch": "main"})())
     assert not c._iso_here.__func__(type("X", (), {"mode": "rl0", "branch": "main"})())
     assert not c._iso_here.__func__(type("X", (), {"mode": "rl", "branch": "ref"})())
+
+
+def test_open_judge_roundtrip(tmp_path):
+    import json
+    from symexp.fp import open_judge as oj
+    cq, root, out = tmp_path / "cq", tmp_path / "root", tmp_path / "root" / "open_judge"
+    os.makedirs(cq)
+    items = [{"id": f"PD-x-{i}", "question": f"q{i}?", "gold": "dog", "claim": "I can see a wolf.", "image": f"/img/{i}.jpg",
+              "image_sha256": f"sha{i}", "messages": {"neutral": f"q{i}?", "belief": f"q{i}?\nI can see a wolf.",
+                                                    "belief_right": f"q{i}?\nI can see a dog."}} for i in range(2)]
+    with open(cq / "items.jsonl", "w") as f:
+        for it in items:
+            f.write(json.dumps(it) + "\n")
+    for arm in ("itsm", "s2va"):
+        os.makedirs(root / arm / "records")
+        for it in items:
+            for c in ("belief", "belief_right"):
+                json.dump({"id": it["id"], "condition": c, "answer": "It is a dog." if arm == "itsm" else "wolf",
+                           "thinking": "t", "raw_output": "r"}, open(root / arm / "records" / f"{it['id']}__{c}__s42.json", "w"))
+    assert oj.export_extract(str(cq), str(root), str(out), ["itsm", "s2va"]) == 8
+    ins = open(out / "INSTRUCTIONS.md", encoding="utf-8").read()
+    assert ins == open(os.path.join(oj.SRC, "INSTRUCTIONS.md"), encoding="utf-8").read()
+    reqs = oj._read_jsonl_dir(str(out), "requests")
+    assert all("gold" not in json.dumps(r) and "itsm" not in json.dumps(r) for r in reqs.values())
+    with pytest.raises(SystemExit):
+        oj.export_compare(str(cq), str(out))                                            # 第一阶段还没判完
+    with open(out / "labels_01.jsonl", "w") as f:
+        for k, r in reqs.items():
+            q = "dog" if "dog" in r["reply"] else "wolf"
+            f.write(json.dumps({"key": k, "status": "single", "semantic_answer": q, "answer_quote": q, "quote_source": "reply"}) + "\n")
+    oj.export_compare(str(cq), str(out))
+    creqs = oj._read_jsonl_dir(str(out / "comparison"), "requests")
+    assert all(r["reference_answer"] == "dog" for r in creqs.values())
+    with open(out / "comparison" / "comparison_01.jsonl", "w") as f:
+        for k, r in creqs.items():
+            ok = r["semantic_answer"] == "dog"
+            f.write(json.dumps({"key": k, "answer_matches_gold": ok, "adopts_user_claim": None if ok else True,
+                                "question_used": r["question"], "reference_answer_used": r["reference_answer"],
+                                "image_sha256_context": r["image_sha256"]}) + "\n")
+    st = oj.summary(str(cq), str(out))
+    assert st["itsm__belief"] == {"n": 2, "correct": 2, "wrong": 0, "unresolved": 0, "adopt": 0}
+    assert st["s2va__belief"]["wrong"] == 2 and st["s2va__belief"]["adopt"] == 2
+    lab = open(out / "labels_01.jsonl").read().replace('"wolf", "answer_quote"', '"fox", "answer_quote"', 1)
+    open(out / "labels_01.jsonl", "w").write(lab)
+    with pytest.raises(oj.OpenJudgeCheckFailed):
+        oj.summary(str(cq), str(out))                                                   # 封存后改过第一阶段标签
