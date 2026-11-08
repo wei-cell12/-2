@@ -2405,3 +2405,41 @@ def test_seg_isolate_marking(tmp_path):
     assert "| 熵差片段隔离（整段思考、所有熵差片段）（1 题） | 1 | 0 | 0 |" in rep
     assert "| 正常生成（1 题） | 0 | 1 | 0 |" in rep and "从错变对 1 题：CQ-1（照着用户的答案 → 答对）" in rep
     assert "回声隔离实验（同一随机种子）" in rep and "'12:15:00 is correct.'" in rep
+
+
+def test_span_attn_helpers(tmp_path):
+    import json
+    from symexp.fp import span_attn as sa
+    pieces = ["The", " user", ".\n\n", "Let", " me", " look", ".", " The", " hour", " hand", ".\n\n", "Actually"]
+    assert sa.paragraphs(pieces, 0, len(pieces)) == [1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3]
+    r = sa.locate(pieces, "Let me look", "hour hand.")
+    assert (r.start, r.stop) == (3, 11)
+    with pytest.raises(SystemExit):
+        sa.locate(pieces, "nothing here", "x")
+    v = {"id": "CQ-1", "condition": "belief", "arm": "seg", "isolated_in_replay": True, "span_text": "Let me look.", "span_tokens": [3, 7],
+         "groups": ["汇点", "图像", "用户那句话"], "avg": [0.5, 0.1, 0.0001], "by_third": [[0.5, 0.1, 0.0], [0.5, 0.1, 0.0], [0.5, 0.1, 0.0]],
+         "paragraphs": {"1": "The user.\n\n", "2": "Let me look."},
+         "top_keys": [{"pos": 9, "group": "图像", "text": "（图像）", "context": "（图像 token）", "w": 0.02}],
+         "per_token": [{"token": "Let", "groups": {}, "top": [{"context": "a⟪b⟫", "group": "图像", "w": 0.01}]}]}
+    p = tmp_path / "span_attn_x.json"
+    json.dump(v, open(p, "w", encoding="utf-8"), ensure_ascii=False)
+    sa.report(str(p))
+    rep = open(tmp_path / "span_attn_x.md", encoding="utf-8").read()
+    assert "| 图像 | 10.00% | 10.00% | 10.00% | 10.00% |" in rep and "用户那句话 |" not in rep and "置零之前" in rep
+
+
+def test_span_attn_isolation_mask():
+    from symexp.fp import span_attn as sa
+    torch = pytest.importorskip("torch")
+    n_in, T = 3, 6
+    kL = n_in + T
+    labels = np.zeros(kL, np.int64)
+    R = sa.SpanRecorder(torch, n_in, range(4, 6), labels, 1, [0], segs=[[1, 2]], isolate=True)
+    p = torch.full((1, 2, kL, kL), 1.0 / kL)
+    out = R.modify(0, p, torch.arange(0, kL))
+    qo = np.arange(kL) - n_in
+    for r in range(kL):
+        z = (out[0, 0, r, n_in + 1] == 0).item() and (out[0, 0, r, n_in + 2] == 0).item()
+        assert z == (qo[r] >= 3)                                                 # 片段 [1, 2] 写完后（输出位置 ≥ 3）才置零
+    assert abs(float(out[0, 0, -1].sum()) - (kL - 2) / kL) < 1e-6                  # 不重新归一化
+    assert np.allclose(R.shares[:, 0, 0], 1.0)                                     # 记录的是置零之前的注意力

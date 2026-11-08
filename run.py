@@ -247,6 +247,17 @@ def main():
     fsg.add_argument("--echo-root", default=None, help="summary：回声隔离的结果目录（取 base 与 echo 一起对比）")
     fsg.add_argument("--maskq-root", default=None, help="summary：fp-maskq 的结果目录")
     fsg.add_argument("--label", default="")
+    fsa = sub.add_parser("fp-spanattn", help="某一段思考对前文的注意力：回放一条已生成的回答（隔离组按生成时的规则隔离），按来源分组")
+    fsa.add_argument("--phase", required=True, choices=["run", "report"])
+    fsa.add_argument("--root", required=True)
+    fsa.add_argument("--record", default=None, help="run：回答记录（例如 results/seg_isolate_20261109/qwen38/records/CQ-006__belief__seg.json）")
+    fsa.add_argument("--entropy-dir", default=None)
+    fsa.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"])
+    fsa.add_argument("--start", default=None, help="run：这一段的开头文字")
+    fsa.add_argument("--end", default=None, help="run：这一段的结尾文字")
+    fsa.add_argument("--image-dirs", nargs="*", default=None)
+    fsa.add_argument("--name", default="")
+    fsa.add_argument("--json", default=None, help="report：run 生成的 json")
     fva = sub.add_parser("fp-valleyattn", help="熵谷之后的注意力归因：回放原回答，看后面的词对图像 / 用户那句话 / 熵差片段的注意力（不生成）")
     fva.add_argument("--phase", required=True, choices=["run", "report"])
     fva.add_argument("--root", required=True)
@@ -315,7 +326,7 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx, fmq, fec, fva, fsg):
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx, fmq, fec, fva, fsg, fsa):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -424,6 +435,15 @@ def main():
                           a.image_dirs, a.shard, seed=a.seed, ids=a.ids, arms=a.arms)
             else:
                 fp_sg.summary(a.root, a.label, a.echo_root, a.maskq_root)
+        elif a.cmd == "fp-spanattn":
+            from symexp.fp import span_attn as fp_sa
+            if a.phase == "run":
+                if not (a.record and a.entropy_dir and a.model_key and a.start and a.end):
+                    raise SystemExit("fp-spanattn run 需要 --record、--entropy-dir、--model-key、--start、--end")
+                fp_sa.run(Config.load(a.config, _overrides(a.set)), a.root, a.record, a.entropy_dir, a.model_key, a.start, a.end,
+                          a.image_dirs, a.name)
+            else:
+                fp_sa.report(a.json)
         elif a.cmd == "fp-valleyattn":
             from symexp.fp import valley_attn as fp_va
             if a.phase == "run":
