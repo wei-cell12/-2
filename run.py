@@ -235,7 +235,7 @@ def main():
     fec.add_argument("--window", type=int, default=128)
     fec.add_argument("--maskq-root", default=None, help="summary：fp-maskq 的结果目录，一起对比")
     fec.add_argument("--label", default="")
-    fsg = sub.add_parser("fp-seg", help="熵差片段隔离：整段思考里读不到靠用户那句话写出来的片段及其重复内容（ClockQA 20 题）")
+    fsg = sub.add_parser("fp-seg", help="熵差片段隔离：整段思考里读不到靠用户那句话写出来的片段（只由熵差决定），ClockQA 20 题")
     fsg.add_argument("--phase", required=True, choices=["run", "summary"])
     fsg.add_argument("--root", required=True)
     fsg.add_argument("--entropy-dir", default=None)
