@@ -2339,3 +2339,18 @@ def test_echo_isolate_summary(tmp_path):
     rep = open(tmp_path / "echo_report.md", encoding="utf-8").read()
     assert "| 回声隔离（1 题） | 1 | 0 | 0 |" in rep and "| 正常生成（1 题） | 0 | 1 | 0 |" in rep and "fp-maskq" in rep
     assert "从错变对 1 题" in rep and "'12:35'" in rep
+
+
+def test_cont_inject_summary(tmp_path):
+    import json
+    from symexp.fp import cont_inject as ci
+    os.makedirs(tmp_path / "records")
+    for c in ("belief", "belief_right"):
+        for arm, o in (("base", "采纳"), ("cont", "坚持（答对）")):
+            r = {"id": "CQ-1", "condition": c, "arm": arm, "outcome": o, "first_reading": {"kind": "对"}, "start": 30,
+                 "start_context": "confirm whether 1", "injected_steps": 128 if arm == "cont" else 0, "cont_lam": 0.2,
+                 "thinking": "The user wants me to read the clock."}
+            json.dump(r, open(tmp_path / "records" / f"CQ-1__{c}__{arm}.json", "w"))
+    ci.summary(str(tmp_path), "t")
+    rep = open(tmp_path / "cont_report.md", encoding="utf-8").read()
+    assert "| 连续注入视觉向量（1 题） | 1 | 0 | 0 | 0 |" in rep and "从错变对 1 题" in rep and "20%" in rep

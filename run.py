@@ -223,6 +223,18 @@ def main():
     frs.add_argument("--ids", nargs="+", required=True)
     frs.add_argument("--image-dirs", nargs="*", default=None)
     frs.add_argument("--label", default="")
+    fct = sub.add_parser("fp-cont", help="从第一个熵差谷开始，连续 128 步注入视觉向量（ClockQA 20 题）")
+    fct.add_argument("--phase", required=True, choices=["run", "summary"])
+    fct.add_argument("--root", required=True)
+    fct.add_argument("--entropy-dir", default=None)
+    fct.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"])
+    fct.add_argument("--neutral-dir", default=None)
+    fct.add_argument("--ids", nargs="*", default=None)
+    fct.add_argument("--image-dirs", nargs="*", default=None)
+    fct.add_argument("--lam", type=float, default=0.2)
+    fct.add_argument("--window", type=int, default=128)
+    fct.add_argument("--maskq-root", default=None)
+    fct.add_argument("--label", default="")
     fec = sub.add_parser("fp-echo", help="回声隔离：熵差找出复述里抄来的用户答案，读图阶段把它的 Value 置零（ClockQA 20 题）")
     fec.add_argument("--phase", required=True, choices=["run", "summary"])
     fec.add_argument("--root", required=True)
@@ -296,7 +308,7 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx, fmq, fec):
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx, fmq, fec, fct):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -387,6 +399,15 @@ def main():
                     fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed, a.arms)
                 else:
                     fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed, a.seeds)
+        elif a.cmd == "fp-cont":
+            from symexp.fp import cont_inject as fp_ct
+            if a.phase == "run":
+                if not (a.entropy_dir and a.model_key and a.neutral_dir):
+                    raise SystemExit("fp-cont run 需要 --entropy-dir、--model-key、--neutral-dir")
+                fp_ct.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.neutral_dir,
+                          a.image_dirs, a.shard, seed=a.seed, ids=a.ids, lam=a.lam, window=a.window)
+            else:
+                fp_ct.summary(a.root, a.label, a.maskq_root)
         elif a.cmd == "fp-echo":
             from symexp.fp import echo_isolate as fp_ec
             if a.phase == "run":
