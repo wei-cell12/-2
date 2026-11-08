@@ -2260,3 +2260,25 @@ def test_first_paragraph_rule():
     assert first_paragraph("Thinking Process:\n\n1.  **Analyze the User's Request:**\n    *   Belief: no\n\n2.") == "user"
     assert first_paragraph("Thinking Process:\n\n1.  **Analyze the image:** sheep grazing.\n\n2.") == "other"
     assert first_paragraph("Okay, let's count the mammals in the image.\n\n1.  First") == "other"
+
+
+def test_ref_entropy_pure(tmp_path):
+    import json
+    from symexp.fp import ref_entropy as re_
+    ok = [True] * 8
+    assert re_.alarms([0.1, -1.2, -1.5, 0.2, -0.3, -1.1, None, -2.0], ok, 0, 8) == [1, 5, 7]   # None 当作 0，打断负值段
+    assert re_.alarms([0.1, -1.2, -1.5, 0.2, -0.3, -1.1, None, -2.0], ok, 2, 8) == [2, 5, 7]   # 范围外的不报警，但不打断负值段
+    assert re_.first_after(["So", " 12", ":", "35", " is"], 1, r"12:35") == 3
+    assert re_.claim_pattern("ClockQA", "12:35:00", None) == r"12:35" and re_.claim_pattern("PathVQA", "no", "no") is None
+    pieces = ["The", " user", " says", " 12:35", ".\n\n", "The", " hour", " hand", " at", " 12", ".", " The", " user"]
+    T = len(pieces)
+    r = {"id": "CQ-1", "condition": "belief", "dataset": "ClockQA", "group": "flip", "restate_end": 5, "restate_kind": "user",
+         "claim": "12:35:00", "wrong_claim": "12:35:00", "pieces": pieces, "phase": ["think"] * T, "forced": [False] * T,
+         "H_P": [0.1] * T, "H_N1": [0.1] * 12 + [2.0], "H_N2": [None] * 5 + [0.1, 0.1, 0.1, 0.1, 2.0, 0.1, 0.1, 2.0],
+         "check_vs_entropy_experiment": {"H_P_absdiff_median": 0, "H_P_absdiff_max": 0, "H_N1_absdiff_median": 0, "H_N1_absdiff_max": 0}}
+    os.makedirs(tmp_path / "records")
+    json.dump(r, open(tmp_path / "records" / "CQ-1__belief.json", "w"))
+    x = re_._one(r)
+    assert x["a1"] == [12] and x["a2"] == [9, 12]          # 新熵差在读出 12 时就报警，旧熵差只在提到 user 时报警
+    re_.analyze(str(tmp_path), "t", examples=["CQ-1__belief"])
+    assert "ΔH2" in open(tmp_path / "ref_entropy_report.md", encoding="utf-8").read()
