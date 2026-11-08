@@ -223,6 +223,18 @@ def main():
     frs.add_argument("--ids", nargs="+", required=True)
     frs.add_argument("--image-dirs", nargs="*", default=None)
     frs.add_argument("--label", default="")
+    fmx = sub.add_parser("fp-mix", help="熵谷处的分布校正：报警后这一句里按两条分支的几何混合采样（base / mix，每题 2 个种子）")
+    fmx.add_argument("--phase", required=True, choices=["run", "judge-export", "match-export", "summary"])
+    fmx.add_argument("--root", required=True)
+    fmx.add_argument("--entropy-dir", default=None)
+    fmx.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"])
+    fmx.add_argument("--datasets", nargs="*", default=None)
+    fmx.add_argument("--ids", nargs="*", default=None, help="run：只做这些题（试跑用）")
+    fmx.add_argument("--image-dirs", nargs="*", default=None)
+    fmx.add_argument("--seeds", nargs="*", type=int, default=None)
+    fmx.add_argument("--beta", type=float, default=0.5)
+    fmx.add_argument("--window", type=int, default=32)
+    fmx.add_argument("--label", default="")
     fre = sub.add_parser("fp-refent", help="离线检验：熵差参照不带复述段时，读图段会不会出现熵差谷（只回放已有回答）")
     fre.add_argument("--phase", required=True, choices=["replay", "analyze"])
     fre.add_argument("--root", required=True)
@@ -264,7 +276,7 @@ def main():
     fm2.add_argument("--yn-out", default=None, help="yn-export / yn-summary：判读目录（默认 root/yesno_judge）")
     fm2.add_argument("--yn-arms", nargs="*", default=None, help="yn-export：只导出这些方法（如 s2va）")
     fm2.add_argument("--yn-extra", nargs="*", default=None, help="yn-summary：之前那批判读的 judgments.json，用于同题配对")
-    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre):
+    for q in (fo, fi, fpu, fdu, fen, fag, fsp, fhd, fcf, fvf, fcm, fsr, fm2, ftr, frb, frs, fa1, fvl, fre, fmx):
         q.add_argument("--config", default=None)
         q.add_argument("--shard", default="", help="k/n：只做第 k 份（共 n 份），多张卡并行时用")
         q.add_argument("--seed", type=int, default=42)
@@ -355,6 +367,20 @@ def main():
                     fp_compare.run_gate(c, a.cq, a.work, a.root, a.threshold, a.seed, a.arms)
                 else:
                     fp_compare.run_arms(c, a.cq, a.work, a.root, a.arms, a.conds, a.threshold, a.shard, a.seed, a.seeds)
+        elif a.cmd == "fp-mix":
+            from symexp.fp import mix_decode as fp_mx
+            from symexp.fp import valley_inject as fp_vl
+            if a.phase == "run":
+                if not (a.entropy_dir and a.model_key):
+                    raise SystemExit("fp-mix run 需要 --entropy-dir、--model-key")
+                fp_mx.run(Config.load(a.config, _overrides(a.set)), a.root, a.entropy_dir, a.model_key, a.image_dirs, a.shard,
+                          seeds=a.seeds, beta=a.beta, window=a.window, datasets=a.datasets, only_ids=a.ids)
+            elif a.phase == "judge-export":
+                fp_vl.judge_export(a.root)
+            elif a.phase == "match-export":
+                fp_vl.match_export(a.root)
+            else:
+                fp_mx.summary(a.root, a.label)
         elif a.cmd == "fp-refent":
             from symexp.fp import ref_entropy as fp_re
             if a.phase == "replay":

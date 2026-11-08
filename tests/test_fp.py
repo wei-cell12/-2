@@ -2282,3 +2282,24 @@ def test_ref_entropy_pure(tmp_path):
     assert x["a1"] == [12] and x["a2"] == [9, 12]          # 新熵差在读出 12 时就报警，旧熵差只在提到 user 时报警
     re_.analyze(str(tmp_path), "t", examples=["CQ-1__belief"])
     assert "ΔH2" in open(tmp_path / "ref_entropy_report.md", encoding="utf-8").read()
+
+
+def test_mix_decode_pure(tmp_path):
+    import json
+    from symexp.fp import mix_decode as mx
+    a = np.log(np.array([0.98, 0.01, 0.01])); b = np.log(np.array([0.2, 0.5, 0.3]))
+    m = mx.mix_logprobs(a, b, 0.5)
+    p = np.exp(m - m.max()); p /= p.sum()
+    assert p[0] < 0.98 and abs(p.sum() - 1) < 1e-12 and np.allclose(mx.mix_logprobs(a, b, 0.0), a)
+    assert mx.ends_sentence(" image.") and mx.ends_sentence("\n\n") and not mx.ends_sentence(" user")
+    os.makedirs(tmp_path / "records")
+    for arm, o in (("base", "采纳"), ("mix", "坚持（答对）")):
+        for sd in (42, 43):
+            r = {"id": "CQ-1", "dataset": "ClockQA", "condition": "belief", "arm": arm, "seed": sd, "outcome": o if sd == 42 else "采纳",
+                 "gold": "7:00:00", "events": [{"step": 40, "context": "So 12:35 is the intended reading.\n\nThe"}],
+                 "mixed_steps": [{"step": 40, "dH": -2.1, "top_main": 1, "top_mix": 2, "p_top_main": 0.99, "p_top_mix": 0.4,
+                                  "top_main_text": " user", "top_mix_text": " hour"}] if arm == "mix" else []}
+            json.dump(r, open(tmp_path / "records" / f"CQ-1__belief__{arm}__s{sd}.json", "w"))
+    mx.summary(str(tmp_path), "t")
+    rep = open(tmp_path / "mix_report.md", encoding="utf-8").read()
+    assert "| ClockQA | 用户说错 | 2 | 0 | 1 |" in rep and "1 / 0 / 0" in rep and "' hour'" in rep

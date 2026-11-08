@@ -412,7 +412,9 @@ def _layer0(model):
 
 
 # ---------------------------------------------------------------- 生成一条
-def generate(backend, cfg, item: dict, cond: str, arm: str, seed: int = 42, lam: float = LAM) -> dict:
+def generate(backend, cfg, item: dict, cond: str, arm: str, seed: int = 42, lam: float = LAM, ctrl_cls=None,
+             attention: bool = True, ctrl_kw: Optional[dict] = None) -> dict:
+    """ctrl_cls / ctrl_kw：换用别的控制器（例如 fp-mix 的 MixController）；attention=False 时不记录注意力（更快）。"""
     from .. import attn
     from .generate import build_inputs, make_budget
     torch, tf, model, tok = backend.torch, backend.transformers, backend.model, backend.tokenizer
@@ -421,6 +423,8 @@ def generate(backend, cfg, item: dict, cond: str, arm: str, seed: int = 42, lam:
     targets = attn.find_targets(model)
     has_sliding = any(bool(getattr(m, "is_sliding", False)) for _, m in targets)
     rec_layers = sorted(int(m.layer_idx) for _, m in targets if not (has_sliding and getattr(m, "is_sliding", False)))
+    if not attention:
+        rec_layers = []
     attn.install(model, verbose=False, only=lambda m: int(m.layer_idx) in rec_layers)
     prompt, inputs = build_inputs(backend, item["image"], item["messages"][cond])
     _, n_inputs = build_inputs(backend, item["image"], item["messages"]["neutral"])
@@ -444,7 +448,8 @@ def generate(backend, cfg, item: dict, cond: str, arm: str, seed: int = 42, lam:
     eos = gc.eos_token_id if isinstance(gc.eos_token_id, list) else [gc.eos_token_id]
     tb, ab = cfg.think_budget, cfg.answer_budget
     budget = make_budget(tf, torch, n_in, backend.close_id, int(eos[0]), tb, ab)
-    ctrl = ValleyController(backend, cfg, arm, nbatch, n_in, img_idx.to(dev), rec_layers, vis_ids, lam=lam)
+    ctrl = (ctrl_cls or ValleyController)(backend, cfg, arm, nbatch, n_in, img_idx.to(dev), rec_layers, vis_ids, lam=lam,
+                                           **(ctrl_kw or {}))
     hooks = [model.register_forward_pre_hook(ctrl.pre_hook, with_kwargs=True), model.register_forward_hook(ctrl.post_hook),
              _layer0(model).register_forward_pre_hook(ctrl.layer0_pre, with_kwargs=True)]
     inner = getattr(model, "model", None)
@@ -482,7 +487,7 @@ def generate(backend, cfg, item: dict, cond: str, arm: str, seed: int = 42, lam:
             "restated": tok.decode(output[ctrl.skip:ctrl.end], skip_special_tokens=False) if ctrl.end else None,  # 开头第一段
             "vis_tokens": [tok.decode([x], skip_special_tokens=False) for x in vis_ids], "rec_layers": rec_layers,
             "events": ctrl.events, "dH": [round(x, 4) for x in ctrl.dH], "image_mass": [round(x, 5) for x in ctrl.mass],
-            "ref_check": verify, "explicit_vs_original": ctrl._rel or None}
+            "ref_check": verify, "explicit_vs_original": ctrl._rel or None, **(ctrl.extra() if hasattr(ctrl, "extra") else {})}
 
 
 # ---------------------------------------------------------------- 入口：生成
@@ -654,9 +659,8 @@ def match_export(root: str) -> None:
 
 
 # ---------------------------------------------------------------- 汇总
-def summary(root: str, label: str = "", title: Optional[str] = None, notes: Optional[List[str]] = None) -> None:
-    recs = dict(_records(root))
-    arms = [a for a in ("base", "lead", "img", "pull") if any(r["arm"] == a for r in recs.values())]
+def judged_status(root: str, recs: Dict[str, dict]) -> Dict[str, Tuple[str, str]]:
+    """{记录文件名: (数据集, 答对 / 跟着错误说法 / 其他错 / 未解)}；PathVQA、PENDULUM 没判读完的不列。"""
     ex = os.path.join(root, "judge_extract")
     labs, keymap, mlabs, order = {}, {}, {}, {}
     if os.path.exists(os.path.join(ex, "SEALED.json")):
@@ -686,7 +690,15 @@ def summary(root: str, label: str = "", title: Optional[str] = None, notes: Opti
                        if m in ("A", "B") else (m or "no_answer")}
         else:
             continue
-        st[(r["id"], r["condition"], r["arm"])] = (ds, status_of(ds, r["condition"], lab, r["gold"]))
+        st[fn] = (ds, status_of(ds, r["condition"], lab, r["gold"]))
+    return st
+
+
+def summary(root: str, label: str = "", title: Optional[str] = None, notes: Optional[List[str]] = None) -> None:
+    recs = dict(_records(root))
+    arms = [a for a in ("base", "lead", "img", "pull") if any(r["arm"] == a for r in recs.values())]
+    js = judged_status(root, recs)
+    st = {(recs[fn]["id"], recs[fn]["condition"], recs[fn]["arm"]): v for fn, v in js.items()}
     cname = {"belief": "用户说错", "belief_right": "用户说对"}
     head = notes if notes is not None else [
         f"- 报警：思考里、开头一段之后，每段连续负熵差里第一次 ΔH ≤ {THRESH}；每条回答最多注入 {MAX_INJECT} 次；",
