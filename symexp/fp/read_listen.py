@@ -7,6 +7,9 @@
   按段落（空行分段）平均；一段写完时，如果它的看图量降到此前各段最高值的 RATIO 以下（且此前至少有一段），
   说明模型已经从看图转到推理，读图阶段在这一段写完后结束（已写出的词不能撤回，所以切换发生在这一段之后）。
   只计入至少 MIN_PAR 个词的段落；读图阶段最多 R_MAX 个词。不依赖任何数据集的答案格式。
+  另外（规则 2，2026-11-09 起）：如果熵差分支这一步最可能写的是"结束思考"或"结束回答"的标记，说明中性模型认为已经读完，
+  读图阶段在这一步结束、由主分支接着写（以前是禁止它结束，题目短时会写出乱码）。两个条件先到哪个算哪个。
+  旧规则下撞到上限的记录（受影响的只有这些）重跑时会自动重新生成，旧文件移到 records_superseded/。
 阶段二：切回主分支，模型带着自己读图的结果第一次面对用户的话，接着往下写。
   rl 组：之后每段熵差片段（连续负熵差、其中至少一步 ≤ −1）写完之后，后面的词读不到它的内容（权重乘 0，不重新归一化）；
   rl0 组：不隔离（只看读图阶段的作用）。提示（包括用户那句话）和图像都不动。
@@ -29,6 +32,18 @@ RATIO = 0.5
 MIN_PAR = 8
 R_MAX = 512
 ARMS = ["base", "reframe", "itsm", "mmsy", "s2va", "preread", "rl", "rl0"]
+RL_RULE = 2
+
+
+def wants_end(ref_top: int, end_ids) -> bool:
+    """熵差分支这一步最可能写的词是不是"结束思考 / 结束回答"的标记。"""
+    return int(ref_top) in {int(x) for x in end_ids if x is not None}
+
+
+def needs_redo(rec: dict) -> bool:
+    """旧规则（禁止熵差分支结束思考）下撞到读图上限的记录：按新规则重新生成。"""
+    return (rec.get("arm") in ("rl", "rl0") and int(rec.get("rl_rule") or 1) < RL_RULE
+            and str(rec.get("switch_reason") or "").startswith("读图阶段达到上限"))
 DEFAULT_ARMS = ["base", "itsm", "rl"]
 
 
@@ -97,7 +112,9 @@ class RLController(SegController):
                     self._par = []
             if self.reading and self.skip is not None and k - self.skip >= self.r_max:
                 self._end_reading(k, f"读图阶段达到上限 {self.r_max} 个词")
-        if self.reading:                                        # 这一步从熵差分支采样；不允许结束思考
+        if self.reading and wants_end(int(self.ref_logits_now.argmax()), [self.b.close_id, *self.eos]):
+            self._end_reading(k, "熵差分支要结束思考")                 # 这一步起由主分支来写
+        if self.reading:                                        # 这一步从熵差分支采样（不是最可能结束时，不让它偶然采到结束）
             t = self.torch
             lg = output.logits[0, -1]
             rp = self.ref_logits_now.to(lg.device).clone()
@@ -121,7 +138,7 @@ class RLController(SegController):
     def extra(self) -> dict:
         e = super().extra()
         s = self.skip or 0
-        e.update(switch_at=self.switch_at, switch_reason=self.switch_reason, reading_tokens=(self.switch_at or 0) - s,
+        e.update(rl_rule=RL_RULE, switch_at=self.switch_at, switch_reason=self.switch_reason, reading_tokens=(self.switch_at or 0) - s,
                  reading_text="".join(self.pieces[s:self.switch_at or s]), paragraphs=self.par_info,
                  ref_mass=[round(x, 5) for x in self.ref_mass])
         return e
@@ -196,8 +213,18 @@ def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[
         json.dump(sel, f, ensure_ascii=False, indent=1)
     tasks = [(ds, i, c, a) for ds in datasets for i in sel[ds] for c in CONDS for a in arms if not ids or i in ids]
     tasks = _shard(tasks, shard)
-    todo = [x for x in tasks if not os.path.exists(os.path.join(root, "records", f"{x[1]}__{x[2]}__{x[3]}.json"))]
-    print(f"[fp-rl] 本进程 {len(tasks)} 项，待做 {len(todo)} 项", file=sys.stderr)
+    todo, redo = [], 0
+    for x in tasks:
+        p = os.path.join(root, "records", f"{x[1]}__{x[2]}__{x[3]}.json")
+        if not os.path.exists(p):
+            todo.append(x)
+        elif needs_redo(json.load(open(p, encoding="utf-8"))):
+            os.makedirs(os.path.join(root, "records_superseded"), exist_ok=True)
+            os.replace(p, os.path.join(root, "records_superseded", os.path.basename(p)))
+            todo.append(x)
+            redo += 1
+    print(f"[fp-rl] 本进程 {len(tasks)} 项，待做 {len(todo)} 项（其中旧规则下撞到读图上限、按新规则重做 {redo} 项，"
+          f"旧文件移到 records_superseded/）", file=sys.stderr)
     eng = None
     for n, (ds, iid, c, arm) in enumerate(todo):
         e = ent[(iid, c)]
@@ -260,20 +287,22 @@ def summary(root: str, label: str = "") -> None:
         "- base：正常生成；reframe：直接回答模型改写出的中性问题（Ask Don't Tell 两步改写，看不到用户的话）；"
         "itsm：ITSM（中性分支对比解码）；mmsy：MM-SY；s2va：S2VA；preread：先读后听（两次调用，预读 64–128 个词，贴在思考开头）；",
         f"- rl（先看再听）：思考开头由看不到用户的话的熵差分支来写，写到某一段的看图量降到此前最高段的 {RATIO} 以下"
-        f"（或满 {R_MAX} 个词）为止；之后切回主分支，熵差片段写完后隔离；rl0：同样的读图阶段，之后不隔离；",
+        f"、或中性模型最可能要结束思考（或满 {R_MAX} 个词）为止；之后切回主分支，熵差片段写完后隔离；rl0：同样的读图阶段，之后不隔离；",
         "- 中性问题都是模型自己改写的；各组同一随机种子。"]
     vsum(root, label, title="先看再听（读图阶段看不到用户的话，之后用熵差隔离）", notes=notes, arms_order=ARMS)
     recs = [json.load(open(os.path.join(root, "records", f), encoding="utf-8"))
             for f in sorted(os.listdir(os.path.join(root, "records"))) if f.endswith(".json")]
-    L = ["", "## 读图阶段", "", "| 数据集 | 组 | 回答数 | 读图阶段平均词数 | 因看图量下降而切换 | 因达到上限而切换 |", "|---|---|---:|---:|---:|---:|"]
+    L = ["", "## 读图阶段", "", "| 数据集 | 组 | 回答数 | 读图阶段平均词数 | 因看图量下降而切换 | 因中性模型要结束思考而切换 | 因达到上限而切换 |",
+         "|---|---|---:|---:|---:|---:|---:|"]
     for ds in DATASETS:
         for a in ("rl", "rl0"):
             rs = [r for r in recs if r["dataset"] == ds and r["arm"] == a]
             if not rs:
                 continue
-            drop = sum(1 for r in rs if r.get("switch_reason", "").startswith("看图量"))
+            drop = sum(1 for r in rs if (r.get("switch_reason") or "").startswith("看图量"))
             cap = sum(1 for r in rs if (r.get("switch_reason") or "").startswith("读图阶段达到上限"))
-            L.append(f"| {ds} | {a} | {len(rs)} | {np.mean([r['reading_tokens'] for r in rs]):.0f} | {drop} | {cap} |")
+            end = sum(1 for r in rs if (r.get("switch_reason") or "").startswith("熵差分支要结束"))
+            L.append(f"| {ds} | {a} | {len(rs)} | {np.mean([r['reading_tokens'] for r in rs]):.0f} | {drop} | {end} | {cap} |")
     L += ["", "## 耗时（秒 / 条，平均）", "", "| 数据集 | " + " | ".join(ARMS) + " |", "|---|" + "---:|" * len(ARMS)]
     for ds in DATASETS:
         cells = []

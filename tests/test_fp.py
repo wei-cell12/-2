@@ -2552,3 +2552,13 @@ def test_open_judge_roundtrip(tmp_path):
     open(out / "labels_01.jsonl", "w").write(lab)
     with pytest.raises(oj.OpenJudgeCheckFailed):
         oj.summary(str(cq), str(out))                                                   # 封存后改过第一阶段标签
+
+
+def test_read_listen_rule2_end_and_redo():
+    from symexp.fp import read_listen as rl
+    assert rl.wants_end(7, [7, 9]) and rl.wants_end(9, [7, None, 9]) and not rl.wants_end(3, [7, 9])
+    old_cap = {"arm": "rl", "switch_reason": "读图阶段达到上限 512 个词"}
+    assert rl.needs_redo(old_cap)
+    assert not rl.needs_redo({"arm": "rl", "switch_reason": "看图量降到此前最高段的一半以下"})   # 旧规则下正常切换的不重做
+    assert not rl.needs_redo(dict(old_cap, rl_rule=2))                                     # 新规则下撞上限的不重做
+    assert not rl.needs_redo({"arm": "base", "switch_reason": "读图阶段达到上限 512 个词"})
