@@ -2339,3 +2339,38 @@ def test_echo_isolate_summary(tmp_path):
     rep = open(tmp_path / "echo_report.md", encoding="utf-8").read()
     assert "| 回声隔离（1 题） | 1 | 0 | 0 |" in rep and "| 正常生成（1 题） | 0 | 1 | 0 |" in rep and "fp-maskq" in rep
     assert "从错变对 1 题" in rep and "'12:35'" in rep
+
+
+def test_valley_attn_runs_and_recorder(tmp_path):
+    import json
+    from symexp.fp import valley_attn as va
+    dH = [0.1, -0.5, -1.2, -0.3, 0.2, -0.4, 0.0, -2.0, -0.1, 0.5, -1.5]
+    assert va.neg_runs(dH, 0, len(dH)) == [[1, 2, 3], [7, 8], [10]]       # [5] 没有 ≤ −1，不算
+    assert va.neg_runs(dH, 4, len(dH)) == [[7, 8], [10]]
+    assert va.first_alarm(dH, 4, len(dH)) == 7
+    assert va.first_alarm(dH, 3, len(dH)) == 7                              # 第 3 步属于已报过警的那段
+    assert va.first_alarm(dH, 0, 2) is None
+
+    res = {"CQ-1__belief": {"id": "CQ-1", "condition": "belief", "group": "flip", "dataset": "ClockQA", "t0": 10, "run_end": 12,
+                            "opening_end": 5, "n_think": 40, "span_text": "I think 12:35.", "runs_open": ["12:35"],
+                            "runs_later": ["The user"], "context": "a⟪b⟫c",
+                            "windows": {"全部层": {"熵谷之后 50 个词": {"image": 0.1, "user": 0.02, "echo_open": 0.03,
+                                                                     "echo_later": 0.01, "rest": 0.84}}}}}
+    json.dump(res, open(tmp_path / "valley_attn.json", "w", encoding="utf-8"), ensure_ascii=False)
+    va.report(str(tmp_path))
+    rep = open(tmp_path / "valley_attn_report.md", encoding="utf-8").read()
+    assert "## CQ-1（被带偏）" in rep and "| 熵谷之后 50 个词 | 10.00% | 2.00% | 3.00% | 1.00% | 84.00% |" in rep
+
+
+def test_valley_attn_recorder():
+    from symexp.fp import valley_attn as va
+    torch = pytest.importorskip("torch")
+    n_in, T = 4, 3
+    labels = np.array([0, 1, 4, 4, 2, 3, 4], np.int64)                    # 键：图像、用户、其余×2、开头片段、之后片段、其余
+    R = va.GroupRecorder(torch, n_in, 1, 3, labels, [5])
+    kL = n_in + T
+    p = torch.zeros(1, 2, kL, kL)
+    p[0, :, :, :] = 1.0 / kL
+    R.accumulate(5, p, None, torch.arange(0, kL))
+    assert np.allclose(R.shares[0], [[1 / kL, 1 / kL, 1 / kL, 1 / kL, 3 / kL]])
+    R.accumulate(9, p, None, torch.arange(0, kL))                           # 不在所选层：忽略
