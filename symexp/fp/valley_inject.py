@@ -413,8 +413,10 @@ def _layer0(model):
 
 # ---------------------------------------------------------------- 生成一条
 def generate(backend, cfg, item: dict, cond: str, arm: str, seed: int = 42, lam: float = LAM, ctrl_cls=None,
-             attention: bool = True, ctrl_kw: Optional[dict] = None) -> dict:
-    """ctrl_cls / ctrl_kw：换用别的控制器（例如 fp-mix 的 MixController）；attention=False 时不记录注意力（更快）。"""
+             attention: bool = True, ctrl_kw: Optional[dict] = None, all_layers: bool = False,
+             neutral_text: Optional[str] = None) -> dict:
+    """ctrl_cls / ctrl_kw：换用别的控制器（例如 fp-mix 的 MixController）；attention=False 时不记录注意力（更快）；
+    all_layers：所有标准注意力层都装上（Gemma 包括滑动窗口层）；neutral_text：熵差分支用的中性问题（默认用数据集的中性问题）。"""
     from .. import attn
     from .generate import build_inputs, make_budget
     torch, tf, model, tok = backend.torch, backend.transformers, backend.model, backend.tokenizer
@@ -423,11 +425,13 @@ def generate(backend, cfg, item: dict, cond: str, arm: str, seed: int = 42, lam:
     targets = attn.find_targets(model)
     has_sliding = any(bool(getattr(m, "is_sliding", False)) for _, m in targets)
     rec_layers = sorted(int(m.layer_idx) for _, m in targets if not (has_sliding and getattr(m, "is_sliding", False)))
+    if all_layers:
+        rec_layers = sorted(int(m.layer_idx) for _, m in targets)
     if not attention:
         rec_layers = []
     attn.install(model, verbose=False, only=lambda m: int(m.layer_idx) in rec_layers)
     prompt, inputs = build_inputs(backend, item["image"], item["messages"][cond])
-    _, n_inputs = build_inputs(backend, item["image"], item["messages"]["neutral"])
+    _, n_inputs = build_inputs(backend, item["image"], neutral_text or item["messages"]["neutral"])
     tid = attn.image_token_id(backend)
     ids, nids = inputs["input_ids"][0], n_inputs["input_ids"][0]
     img_idx = (ids == tid).nonzero().flatten()

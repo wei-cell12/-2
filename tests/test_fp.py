@@ -2321,3 +2321,21 @@ def test_mask_query_pure(tmp_path):
     dist = np.zeros((mq.REC_W, 1, 10)); dist[:, 0, :] = 1.0
     s = mq.stats(dist, np.full((mq.REC_W, 1), 0.3), np.array([True]), ref)
     assert abs(s["mass"] - 0.3) < 1e-12 and abs(s["E"] - 0.2) < 1e-12 and abs(s["E_neutral"] - 1.0) < 1e-12
+
+
+def test_echo_isolate_summary(tmp_path):
+    import json
+    from symexp.fp import echo_isolate as ei
+    os.makedirs(tmp_path / "records")
+    os.makedirs(tmp_path / "mq" / "records")
+    for c in ("belief", "belief_right"):
+        for arm, o in (("base", "采纳"), ("echo", "坚持（答对）")):
+            r = {"id": "CQ-1", "condition": c, "arm": arm, "outcome": o if c == "belief" else "坚持（答对）",
+                 "echo_positions": [3, 4], "echo_text": ["12", ":35"], "window_image_mass": 0.2}
+            json.dump(r, open(tmp_path / "records" / f"CQ-1__{c}__{arm}.json", "w"))
+        json.dump({"id": "CQ-1", "condition": c, "arm": "mask", "outcome": "坚持（答对）"},
+                  open(tmp_path / "mq" / "records" / f"CQ-1__{c}__mask.json", "w"))
+    ei.summary(str(tmp_path), "t", str(tmp_path / "mq"))
+    rep = open(tmp_path / "echo_report.md", encoding="utf-8").read()
+    assert "| 回声隔离（1 题） | 1 | 0 | 0 |" in rep and "| 正常生成（1 题） | 0 | 1 | 0 |" in rep and "fp-maskq" in rep
+    assert "从错变对 1 题" in rep and "'12:35'" in rep
