@@ -10,7 +10,8 @@
 阶段二：切回主分支，模型带着自己读图的结果第一次面对用户的话，接着往下写。
   rl 组：之后每段熵差片段（连续负熵差、其中至少一步 ≤ −1）写完之后，后面的词读不到它的内容（权重乘 0，不重新归一化）；
   rl0 组：不隔离（只看读图阶段的作用）。提示（包括用户那句话）和图像都不动。
-对照：base（正常生成）、itsm（ITSM：中性分支对比解码，fp-model2 的实现），同一随机种子。
+对照：base（正常生成）、itsm（ITSM：中性分支对比解码，fp-model2 的实现）、preread（先读后听：两次调用、预读 64–128 个词，
+  preread.py 的实现），同一随机种子。
 """
 
 import json
@@ -26,7 +27,7 @@ from .valley_inject import CONDS, DATASETS, THRESH
 RATIO = 0.5
 MIN_PAR = 8
 R_MAX = 512
-ARMS = ["base", "itsm", "rl", "rl0"]
+ARMS = ["base", "itsm", "preread", "rl", "rl0"]
 DEFAULT_ARMS = ["base", "itsm", "rl"]
 
 
@@ -201,7 +202,7 @@ def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[
         item["image"] = resolve_image(job, orig, image_dirs)
         item.setdefault("id", iid)
         npath = os.path.join(root, "neutralized", f"{iid}__{c}.json")
-        if arm in ("itsm", "rl", "rl0"):
+        if arm in ("itsm", "preread", "rl", "rl0"):
             if not os.path.exists(npath):
                 raise SystemExit(f"缺少模型改写的中性问题 {npath}（先跑 --phase neutralize）")
             nq = json.load(open(npath, encoding="utf-8"))["neutral"]
@@ -211,6 +212,9 @@ def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[
             eng = _engine(cfg)
         if arm in ("base", "itsm"):
             rec = generate2(eng.backend, cfg, item, c, arm, seed=seed, neutral_text=nq)
+        elif arm == "preread":
+            from .preread import generate_preread
+            rec = generate_preread(eng.backend, cfg, item, c, seed, neutral_text=nq)
         else:
             rec = generate(eng.backend, cfg, item, c, arm, seed=seed, lam=0.0, ctrl_cls=RLController, attention=True,
                            all_layers=True, neutral_text=nq)
@@ -236,7 +240,7 @@ def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[
 def summary(root: str, label: str = "") -> None:
     from .valley_inject import summary as vsum
     notes = [
-        "- base：正常生成；itsm：ITSM（中性分支对比解码）；",
+        "- base：正常生成；itsm：ITSM（中性分支对比解码）；preread：先读后听（两次调用，预读 64–128 个词，贴在思考开头）；",
         f"- rl（先看再听）：思考开头由看不到用户的话的熵差分支来写，写到某一段的看图量降到此前最高段的 {RATIO} 以下"
         f"（或满 {R_MAX} 个词）为止；之后切回主分支，熵差片段写完后隔离；rl0：同样的读图阶段，之后不隔离；",
         "- 中性问题都是模型自己改写的；各组同一随机种子。"]

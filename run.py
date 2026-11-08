@@ -300,7 +300,8 @@ def main():
     frl.add_argument("--root", required=True)
     frl.add_argument("--entropy-dir", default=None)
     frl.add_argument("--model-key", default=None, choices=["qwen38", "gemma4"])
-    frl.add_argument("--arms", nargs="*", default=None, choices=["base", "itsm", "rl", "rl0"], help="run：默认 base itsm rl")
+    frl.add_argument("--arms", nargs="*", default=None, choices=["base", "itsm", "preread", "rl", "rl0"],
+                     help="run：默认 base itsm rl；preread、rl0 按需加")
     frl.add_argument("--datasets", nargs="*", default=None, choices=["ClockQA", "PathVQA", "PENDULUM"])
     frl.add_argument("--ids", nargs="*", default=None, help="run：只做这些题（试跑用）")
     frl.add_argument("--image-dirs", nargs="*", default=None)
