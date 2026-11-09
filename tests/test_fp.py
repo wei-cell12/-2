@@ -2562,3 +2562,15 @@ def test_read_listen_rule2_end_and_redo():
     assert not rl.needs_redo({"arm": "rl", "switch_reason": "看图量降到此前最高段的一半以下"})   # 旧规则下正常切换的不重做
     assert not rl.needs_redo(dict(old_cap, rl_rule=2))                                     # 新规则下撞上限的不重做
     assert not rl.needs_redo({"arm": "base", "switch_reason": "读图阶段达到上限 512 个词"})
+
+
+def test_read_listen_select_matches_and_extends():
+    from symexp.fp import read_listen as rl
+    from symexp.fp.valley_inject import selection
+    ent = {}
+    for ds, pre in (("ClockQA", "CQ"), ("PathVQA", "PV"), ("PENDULUM", "PD")):
+        for i in range(50):
+            ent[(f"{pre}-{i:03d}", "belief")] = {"dataset": ds, "group": "flip" if i % 3 else "hold"}
+    s20, s50 = rl.select(ent, 20), rl.select(ent, 50)
+    assert s20 == selection(ent)                                                       # 20 题与主实验选题相同
+    assert all(set(s20[d]) <= set(s50[d]) and len(s50[d]) == 50 for d in s20)          # 50 题包含这 20 题

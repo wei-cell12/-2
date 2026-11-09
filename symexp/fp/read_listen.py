@@ -145,17 +145,23 @@ class RLController(SegController):
 
 
 # ---------------------------------------------------------------- 中性问题（模型自己改写）
-def neutralize(cfg, root: str, ent_dir: str, model_key: str, shard: str = "") -> None:
+def select(ent, per_dataset: int = 20) -> Dict[str, List[str]]:
+    """每个数据集选 per_dataset 题；per_dataset = 20 时与熵谷注入、主实验的选题完全相同，50 题包含这 20 题。"""
+    from .valley_inject import select_items
+    return {ds: select_items({k[0]: v["group"] for k, v in ent.items() if v["dataset"] == ds and k[1] == "belief"}, per_dataset)
+            for ds in DATASETS}
+
+
+def neutralize(cfg, root: str, ent_dir: str, model_key: str, shard: str = "", per_dataset: int = 20) -> None:
     from ..backends import GenRequest
     from .conflict import _engine
     from .model2 import NEUTRALIZE_PROMPT, neutral_leak
     from .pipeline import _shard
     from .trigger_regions import load_entropy
-    from .valley_inject import selection
     d = os.path.join(root, "neutralized")
     os.makedirs(d, exist_ok=True)
     ent = load_entropy(ent_dir, model_key, DATASETS)
-    sel = selection(ent)
+    sel = select(ent, per_dataset)
     tasks = _shard([(i, c) for ds in DATASETS for i in sel[ds] for c in CONDS], shard)
     todo = [t for t in tasks if not os.path.exists(os.path.join(d, f"{t[0]}__{t[1]}.json"))]
     print(f"[fp-rl neutralize] 待做 {len(todo)} 条", file=sys.stderr)
@@ -198,7 +204,7 @@ def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[
     from .model2 import generate2
     from .pipeline import _shard
     from .trigger_regions import load_entropy, resolve_image, resolve_source
-    from .valley_inject import claim_answer, generate, select_items
+    from .valley_inject import claim_answer, generate
     from .verify import final_time, outcome
     arms = arms or DEFAULT_ARMS
     datasets = datasets or DATASETS
@@ -206,8 +212,7 @@ def run(cfg, root: str, ent_dir: str, model_key: str, image_dirs: Optional[List[
         raise SystemExit("mmsy 会另装一套注意力包装，请单独一个进程跑（--arms mmsy）")
     os.makedirs(os.path.join(root, "records"), exist_ok=True)
     ent = load_entropy(ent_dir, model_key, DATASETS)
-    sel = {ds: select_items({k[0]: v["group"] for k, v in ent.items() if v["dataset"] == ds and k[1] == "belief"}, per_dataset)
-           for ds in DATASETS}                                  # per_dataset = 20 时与熵谷注入、主实验的选题完全相同
+    sel = select(ent, per_dataset)                           # per_dataset = 20 时与熵谷注入、主实验的选题完全相同
     with open(os.path.join(root, "selection.json" if per_dataset == 20 else f"selection_n{per_dataset}.json"), "w",
               encoding="utf-8") as f:
         json.dump(sel, f, ensure_ascii=False, indent=1)
