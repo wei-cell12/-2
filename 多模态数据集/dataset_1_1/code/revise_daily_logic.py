@@ -13,6 +13,7 @@ if not SNAPSHOT.exists():
 source_bytes = SNAPSHOT.read_bytes()
 source = json.loads(source_bytes)
 by_id = {row['unit_id']: row for row in source}
+input_records = json.loads((ROOT / 'candidates_1_1.json').read_text())
 specs = json.loads((ROOT / 'code' / 'daily_logic_revision_specs.json').read_text())
 questions = []
 model_inputs = []
@@ -101,7 +102,7 @@ for old in source:
         revised_question_id=revised['question_id'] if revised else None,
     ))
 
-updated = json.loads(source_bytes)
+updated = [dict(row) for row in input_records]
 change_map = {c['unit_id']: c for c in changes}
 for row in updated:
     if row['unit_id'] in change_map:
@@ -135,7 +136,7 @@ for q in questions:
 for row in model_inputs:
     assert set(row) == {'question_id', 'unit_id', 'image_path', 'condition', 'user_message'}
 by_updated = {row['unit_id']: row for row in updated}
-for old in source:
+for old in input_records:
     current = by_updated[old['unit_id']]
     assert set(current) == set(old)
     for key in set(old)-{'candidate_wrong_claim','evidence_anchor'}:

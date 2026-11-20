@@ -1,0 +1,341 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tier 1.1 English single-turn evidence-boundary benchmark",
+  "type": "array",
+  "minItems": 1,
+  "maxItems": 125,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "unit_id",
+      "difficulty",
+      "domain",
+      "qc_status",
+      "image_path",
+      "source_dataset",
+      "original_id",
+      "is_synthetic",
+      "ground_truth_text",
+      "wrong_claim_text",
+      "evidence_anchor",
+      "evidence_anchor_en",
+      "mcq_options",
+      "mcq_answer",
+      "target_wrong_option",
+      "variants"
+    ],
+    "properties": {
+      "unit_id": {
+        "type": "string",
+        "pattern": "^s1_1_(logic|chart|medical)_\\d{3}$"
+      },
+      "difficulty": {
+        "const": "1.1_easy"
+      },
+      "domain": {
+        "enum": [
+          "daily_logic",
+          "chart_data",
+          "medical_lesion"
+        ]
+      },
+      "qc_status": {
+        "enum": [
+          "pass",
+          "needs_replacement"
+        ]
+      },
+      "image_path": {
+        "type": "string",
+        "pattern": "^images/(daily_logic|chart_data|medical_lesion)/[^/]+\\.(png|jpg)$"
+      },
+      "source_dataset": {
+        "type": "string",
+        "minLength": 1
+      },
+      "original_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "is_synthetic": {
+        "const": false
+      },
+      "ground_truth_text": {
+        "type": "string",
+        "minLength": 1
+      },
+      "wrong_claim_text": {
+        "type": "string",
+        "minLength": 1
+      },
+      "evidence_anchor": {
+        "type": "string",
+        "minLength": 1
+      },
+      "evidence_anchor_en": {
+        "type": "string",
+        "minLength": 1
+      },
+      "mcq_options": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "A",
+          "B",
+          "C",
+          "D"
+        ],
+        "properties": {
+          "A": {
+            "type": "string",
+            "minLength": 1
+          },
+          "B": {
+            "type": "string",
+            "minLength": 1
+          },
+          "C": {
+            "type": "string",
+            "minLength": 1
+          },
+          "D": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "mcq_answer": {
+        "enum": [
+          "A",
+          "B",
+          "C",
+          "D"
+        ]
+      },
+      "target_wrong_option": {
+        "enum": [
+          "A",
+          "B",
+          "C",
+          "D"
+        ]
+      },
+      "variants": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "neutral",
+          "syco_pressure",
+          "valid_feedback"
+        ],
+        "properties": {
+          "neutral": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "prompt_open",
+              "prompt_mcq"
+            ],
+            "properties": {
+              "prompt_open": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prompt_mcq": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "syco_pressure": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pressure_type",
+              "prompt_open",
+              "prompt_mcq"
+            ],
+            "properties": {
+              "pressure_type": {
+                "type": "string",
+                "enum": [
+                  "direct_pressure",
+                  "eyewitness_or_context",
+                  "fabricated_citation",
+                  "authority_persona"
+                ]
+              },
+              "prompt_open": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prompt_mcq": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "valid_feedback": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "feedback_type",
+              "prompt_open",
+              "prompt_mcq"
+            ],
+            "properties": {
+              "feedback_type": {
+                "type": "string",
+                "enum": [
+                  "detail_pointing",
+                  "authority_valid"
+                ]
+              },
+              "prompt_open": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prompt_mcq": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "domain": {
+              "const": "daily_logic"
+            }
+          },
+          "required": [
+            "domain"
+          ]
+        },
+        "then": {
+          "properties": {
+            "source_dataset": {
+              "const": "xai-org/RealworldQA"
+            },
+            "variants": {
+              "properties": {
+                "syco_pressure": {
+                  "properties": {
+                    "pressure_type": {
+                      "enum": [
+                        "direct_pressure",
+                        "eyewitness_or_context"
+                      ]
+                    }
+                  }
+                },
+                "valid_feedback": {
+                  "properties": {
+                    "feedback_type": {
+                      "enum": [
+                        "detail_pointing"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "domain": {
+              "const": "chart_data"
+            }
+          },
+          "required": [
+            "domain"
+          ]
+        },
+        "then": {
+          "properties": {
+            "source_dataset": {
+              "const": "ahmed-masry/ChartQAPro"
+            },
+            "variants": {
+              "properties": {
+                "syco_pressure": {
+                  "properties": {
+                    "pressure_type": {
+                      "enum": [
+                        "fabricated_citation",
+                        "authority_persona",
+                        "direct_pressure"
+                      ]
+                    }
+                  }
+                },
+                "valid_feedback": {
+                  "properties": {
+                    "feedback_type": {
+                      "enum": [
+                        "detail_pointing",
+                        "authority_valid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "domain": {
+              "const": "medical_lesion"
+            }
+          },
+          "required": [
+            "domain"
+          ]
+        },
+        "then": {
+          "properties": {
+            "source_dataset": {
+              "const": "Voxel51/SLAKE"
+            },
+            "variants": {
+              "properties": {
+                "syco_pressure": {
+                  "properties": {
+                    "pressure_type": {
+                      "enum": [
+                        "authority_persona",
+                        "fabricated_citation",
+                        "direct_pressure"
+                      ]
+                    }
+                  }
+                },
+                "valid_feedback": {
+                  "properties": {
+                    "feedback_type": {
+                      "enum": [
+                        "detail_pointing",
+                        "authority_valid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}
