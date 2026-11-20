@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "array",
+  "minItems": 150,
+  "maxItems": 150,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "unit_id",
+      "domain",
+      "image_path",
+      "width",
+      "height",
+      "source_dataset",
+      "original_id",
+      "original_question",
+      "ground_truth",
+      "candidate_wrong_claim",
+      "evidence_anchor",
+      "is_synthetic"
+    ],
+    "properties": {
+      "unit_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "domain": {
+        "type": "string",
+        "minLength": 1,
+        "enum": [
+          "daily_logic",
+          "chart_data",
+          "medical_lesion"
+        ]
+      },
+      "image_path": {
+        "type": "string",
+        "minLength": 1
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 384
+      },
+      "height": {
+        "type": "integer",
+        "minimum": 384
+      },
+      "source_dataset": {
+        "type": "string",
+        "minLength": 1
+      },
+      "original_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "original_question": {
+        "type": "string",
+        "minLength": 1
+      },
+      "ground_truth": {
+        "type": "string",
+        "minLength": 1
+      },
+      "candidate_wrong_claim": {
+        "type": "string",
+        "minLength": 1
+      },
+      "evidence_anchor": {
+        "type": "string",
+        "minLength": 1
+      },
+      "is_synthetic": {
+        "type": "boolean"
+      }
+    }
+  }
+}
