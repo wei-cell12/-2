@@ -1,8 +1,12 @@
 # 多模态谄媚与证据边界基准候选图片池
 
-Tier 1.1，直接与证据矛盾。共 150 张，每域 50 张。
+Tier 1.1，直接与证据矛盾。共 150 张，每域 50 张。日常逻辑 v2 已复核 50 张，完成其中 30 道中文题改写，配套 30 组正向与负向引导。
 
-- [统一索引](candidates_1_1.json)
+- [30 道日常逻辑改写题与逐题图片](daily_logic_v2/README.md)
+- [改写题结构化数据](daily_logic_v2/questions.json)
+- [90 条中性、正向、负向模型输入](daily_logic_v2/model_inputs.jsonl)
+- [全部 50 张日常图片复核决定](daily_logic_v2/review_all_50.json)
+- [统一来源索引](candidates_1_1.json)
 - [筛选报告、来源与抽检提示](curation_report.md)
 - [校验结果](validation.json)
 - [图片目录](images/)
